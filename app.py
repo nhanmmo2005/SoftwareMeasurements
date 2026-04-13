@@ -218,6 +218,16 @@ def get_openai_api_key():
     return os.getenv("OPENAI_API_KEY", "").strip()
 
 
+def format_currency_short(value: float) -> str:
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.2f}B VND"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M VND"
+    if value >= 1_000:
+        return f"{value / 1_000:.2f}K VND"
+    return f"{value:,.0f} VND"
+
+
 def reset_form():
     st.session_state.project_name = ""
     st.session_state.description = ""
@@ -549,11 +559,37 @@ with tab1:
 
     with left:
         st.subheader("Project Information")
-        st.session_state.project_name = st.text_input("Project Name", value=st.session_state.project_name)
-        st.session_state.description = st.text_area("Project Description", value=st.session_state.description, height=140)
-        st.session_state.mode = st.selectbox("Development Mode", list(MODES.keys()), index=list(MODES.keys()).index(st.session_state.mode))
-        st.session_state.kloc = st.number_input("Estimated Size (KLOC)", min_value=1.0, value=float(st.session_state.kloc), step=1.0)
-        st.session_state.cost_per_pm = st.number_input("Cost per Person-Month (VND)", min_value=1000000.0, value=float(st.session_state.cost_per_pm), step=1000000.0)
+
+        st.text_input(
+            "Project Name",
+            key="project_name",
+        )
+
+        st.text_area(
+            "Project Description",
+            height=140,
+            key="description",
+        )
+
+        st.selectbox(
+            "Development Mode",
+            list(MODES.keys()),
+            key="mode",
+        )
+
+        st.number_input(
+            "Estimated Size (KLOC)",
+            min_value=1.0,
+            step=1.0,
+            key="kloc",
+        )
+
+        st.number_input(
+            "Cost per Person-Month (VND)",
+            min_value=1000000.0,
+            step=1000000.0,
+            key="cost_per_pm",
+        )
 
         if st.session_state.description.strip():
             st.info(f"Suggested mode: **{suggest_mode_rule_based(st.session_state.description)}**")
@@ -597,8 +633,10 @@ with tab1:
     m1.metric("Effort (PM)", f"{effort:.2f}")
     m2.metric("Time (Months)", f"{tdev:.2f}")
     m3.metric("Team Size", f"{staff:.2f}")
-    m4.metric("Cost (VND)", f"{cost:,.0f}")
+    m4.metric("Cost", format_currency_short(cost))
     m5.metric("Risk Level", risk_level)
+
+    st.caption(f"Full estimated cost: {cost:,.0f} VND")
 
     driver_df = build_driver_df(selections)
     top3_df = get_top_impact_drivers(driver_df)
@@ -777,7 +815,9 @@ with tab2:
     c1.metric("EAF Change", f"{new_eaf:.3f}", f"{new_eaf - base_eaf:+.3f}")
     c2.metric("Effort Change", f"{new_effort:.2f}", f"{new_effort - base_effort:+.2f}")
     c3.metric("Time Change", f"{new_tdev:.2f}", f"{new_tdev - base_tdev:+.2f}")
-    c4.metric("Cost Change", f"{new_cost:,.0f}", f"{new_cost - base_cost:+,.0f}")
+    c4.metric("Cost Change", format_currency_short(new_cost), f"{new_cost - base_cost:+,.0f}")
+
+    st.caption(f"Full what-if cost: {new_cost:,.0f} VND")
 
     fig_what_if = px.bar(
         what_if_df.melt(id_vars="Scenario", value_vars=["Effort", "Time", "Cost"]),
