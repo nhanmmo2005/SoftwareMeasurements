@@ -1,8 +1,7 @@
+
 import os
 import io
 import json
-import math
-import uuid
 import re
 from copy import deepcopy
 from datetime import datetime
@@ -22,14 +21,10 @@ try:
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_LEFT, TA_CENTER
     from reportlab.lib import colors
-    from reportlab.platypus import (
-        SimpleDocTemplate,
-        Paragraph,
-        Spacer,
-        Table,
-        TableStyle,
-        PageBreak,
-    )
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.charts.piecharts import Pie
     REPORTLAB_AVAILABLE = True
 except Exception:
     REPORTLAB_AVAILABLE = False
@@ -45,6 +40,7 @@ st.set_page_config(
 WORKSPACE_FILE = "project_workspace.json"
 HISTORY_FILE = "estimation_history.csv"
 AI_MODEL_NAME = "gpt-4.1-mini"
+APP_SCHEMA_VERSION = "2.1.0"
 
 MODES = {
     "Organic": {"a": 3.2, "b": 1.05, "c": 2.5, "d": 0.38},
@@ -60,176 +56,30 @@ COST_DRIVER_GROUPS = {
 }
 
 COST_DRIVERS = {
-    "RELY": {
-        "label": "Required Software Reliability",
-        "help": "Mức độ yêu cầu độ tin cậy của phần mềm.",
-        "values": {"Very Low": 0.75, "Low": 0.88, "Nominal": 1.00, "High": 1.15, "Very High": 1.40},
-    },
-    "DATA": {
-        "label": "Database Size",
-        "help": "Quy mô dữ liệu mà hệ thống cần xử lý.",
-        "values": {"Low": 0.94, "Nominal": 1.00, "High": 1.08, "Very High": 1.16},
-    },
-    "CPLX": {
-        "label": "Product Complexity",
-        "help": "Độ phức tạp tổng thể của sản phẩm.",
-        "values": {"Very Low": 0.70, "Low": 0.85, "Nominal": 1.00, "High": 1.15, "Very High": 1.30, "Extra High": 1.65},
-    },
-    "TIME": {
-        "label": "Execution Time Constraint",
-        "help": "Ràng buộc về thời gian thực thi.",
-        "values": {"Nominal": 1.00, "High": 1.11, "Very High": 1.30, "Extra High": 1.66},
-    },
-    "STOR": {
-        "label": "Storage Constraint",
-        "help": "Ràng buộc về bộ nhớ hoặc lưu trữ.",
-        "values": {"Nominal": 1.00, "High": 1.06, "Very High": 1.21, "Extra High": 1.56},
-    },
-    "VIRT": {
-        "label": "Virtual Machine Volatility",
-        "help": "Mức độ thay đổi của môi trường chạy.",
-        "values": {"Low": 0.87, "Nominal": 1.00, "High": 1.15, "Very High": 1.30},
-    },
-    "TURN": {
-        "label": "Computer Turnaround Time",
-        "help": "Tốc độ phản hồi và chu kỳ xử lý của hệ thống.",
-        "values": {"Low": 0.87, "Nominal": 1.00, "High": 1.07, "Very High": 1.15},
-    },
-    "ACAP": {
-        "label": "Analyst Capability",
-        "help": "Năng lực của người phân tích hệ thống.",
-        "values": {"Very Low": 1.46, "Low": 1.19, "Nominal": 1.00, "High": 0.86, "Very High": 0.71},
-    },
-    "AEXP": {
-        "label": "Application Experience",
-        "help": "Kinh nghiệm với domain nghiệp vụ tương tự.",
-        "values": {"Very Low": 1.29, "Low": 1.13, "Nominal": 1.00, "High": 0.91, "Very High": 0.82},
-    },
-    "PCAP": {
-        "label": "Programmer Capability",
-        "help": "Năng lực lập trình viên.",
-        "values": {"Very Low": 1.42, "Low": 1.17, "Nominal": 1.00, "High": 0.86, "Very High": 0.70},
-    },
-    "VEXP": {
-        "label": "Virtual Machine Experience",
-        "help": "Kinh nghiệm với môi trường/hệ thống mục tiêu.",
-        "values": {"Very Low": 1.21, "Low": 1.10, "Nominal": 1.00, "High": 0.90},
-    },
-    "LEXP": {
-        "label": "Language Experience",
-        "help": "Kinh nghiệm với ngôn ngữ lập trình đang dùng.",
-        "values": {"Very Low": 1.14, "Low": 1.07, "Nominal": 1.00, "High": 0.95},
-    },
-    "MODP": {
-        "label": "Modern Programming Practices",
-        "help": "Mức độ áp dụng thực hành lập trình hiện đại.",
-        "values": {"Very Low": 1.24, "Low": 1.10, "Nominal": 1.00, "High": 0.91, "Very High": 0.82},
-    },
-    "TOOL": {
-        "label": "Use of Software Tools",
-        "help": "Mức độ hỗ trợ của tool, IDE, testing, CI/CD...",
-        "values": {"Very Low": 1.24, "Low": 1.10, "Nominal": 1.00, "High": 0.91, "Very High": 0.83},
-    },
-    "SCED": {
-        "label": "Required Development Schedule",
-        "help": "Mức độ gắt của deadline.",
-        "values": {"Very Low": 1.23, "Low": 1.08, "Nominal": 1.00, "High": 1.04, "Very High": 1.10},
-    },
+    "RELY": {"label": "Required Software Reliability", "help": "Mức độ yêu cầu độ tin cậy của phần mềm.", "values": {"Very Low": 0.75, "Low": 0.88, "Nominal": 1.00, "High": 1.15, "Very High": 1.40}},
+    "DATA": {"label": "Database Size", "help": "Quy mô dữ liệu mà hệ thống cần xử lý.", "values": {"Low": 0.94, "Nominal": 1.00, "High": 1.08, "Very High": 1.16}},
+    "CPLX": {"label": "Product Complexity", "help": "Độ phức tạp tổng thể của sản phẩm.", "values": {"Very Low": 0.70, "Low": 0.85, "Nominal": 1.00, "High": 1.15, "Very High": 1.30, "Extra High": 1.65}},
+    "TIME": {"label": "Execution Time Constraint", "help": "Ràng buộc về thời gian thực thi.", "values": {"Nominal": 1.00, "High": 1.11, "Very High": 1.30, "Extra High": 1.66}},
+    "STOR": {"label": "Storage Constraint", "help": "Ràng buộc về bộ nhớ hoặc lưu trữ.", "values": {"Nominal": 1.00, "High": 1.06, "Very High": 1.21, "Extra High": 1.56}},
+    "VIRT": {"label": "Virtual Machine Volatility", "help": "Mức độ thay đổi của môi trường chạy.", "values": {"Low": 0.87, "Nominal": 1.00, "High": 1.15, "Very High": 1.30}},
+    "TURN": {"label": "Computer Turnaround Time", "help": "Tốc độ phản hồi và chu kỳ xử lý của hệ thống.", "values": {"Low": 0.87, "Nominal": 1.00, "High": 1.07, "Very High": 1.15}},
+    "ACAP": {"label": "Analyst Capability", "help": "Năng lực của người phân tích hệ thống.", "values": {"Very Low": 1.46, "Low": 1.19, "Nominal": 1.00, "High": 0.86, "Very High": 0.71}},
+    "AEXP": {"label": "Application Experience", "help": "Kinh nghiệm với domain nghiệp vụ tương tự.", "values": {"Very Low": 1.29, "Low": 1.13, "Nominal": 1.00, "High": 0.91, "Very High": 0.82}},
+    "PCAP": {"label": "Programmer Capability", "help": "Năng lực lập trình viên.", "values": {"Very Low": 1.42, "Low": 1.17, "Nominal": 1.00, "High": 0.86, "Very High": 0.70}},
+    "VEXP": {"label": "Virtual Machine Experience", "help": "Kinh nghiệm với môi trường/hệ thống mục tiêu.", "values": {"Very Low": 1.21, "Low": 1.10, "Nominal": 1.00, "High": 0.90}},
+    "LEXP": {"label": "Language Experience", "help": "Kinh nghiệm với ngôn ngữ lập trình đang dùng.", "values": {"Very Low": 1.14, "Low": 1.07, "Nominal": 1.00, "High": 0.95}},
+    "MODP": {"label": "Modern Programming Practices", "help": "Mức độ áp dụng thực hành lập trình hiện đại.", "values": {"Very Low": 1.24, "Low": 1.10, "Nominal": 1.00, "High": 0.91, "Very High": 0.82}},
+    "TOOL": {"label": "Use of Software Tools", "help": "Mức độ hỗ trợ của tool, IDE, testing, CI/CD...", "values": {"Very Low": 1.24, "Low": 1.10, "Nominal": 1.00, "High": 0.91, "Very High": 0.83}},
+    "SCED": {"label": "Required Development Schedule", "help": "Mức độ gắt của deadline.", "values": {"Very Low": 1.23, "Low": 1.08, "Nominal": 1.00, "High": 1.04, "Very High": 1.10}},
 }
 
 PRESET_PROJECTS = {
     "Start from Scratch": None,
-    "Personal Expense Tracker": {
-        "project_name": "Personal Expense Tracker",
-        "description": "A simple personal expense tracking web application with category management, monthly reports, and budget summaries.",
-        "mode": "Organic",
-        "kloc": 8.0,
-        "cost_per_pm": 12000000.0,
-        "drivers": {
-            "RELY": "Low", "DATA": "Low", "CPLX": "Low",
-            "TIME": "Nominal", "STOR": "Nominal", "VIRT": "Low", "TURN": "Low",
-            "ACAP": "High", "AEXP": "High", "PCAP": "High", "VEXP": "Nominal", "LEXP": "High",
-            "MODP": "High", "TOOL": "Very High", "SCED": "Nominal",
-        },
-    },
-    "School Management System": {
-        "project_name": "School Management System",
-        "description": "A school management system with student records, teacher management, attendance tracking, exam scores, and report generation.",
-        "mode": "Organic",
-        "kloc": 18.0,
-        "cost_per_pm": 12000000.0,
-        "drivers": {
-            "RELY": "Nominal", "DATA": "Nominal", "CPLX": "Nominal",
-            "TIME": "Nominal", "STOR": "Nominal", "VIRT": "Nominal", "TURN": "Nominal",
-            "ACAP": "Nominal", "AEXP": "Nominal", "PCAP": "Nominal", "VEXP": "Nominal", "LEXP": "Nominal",
-            "MODP": "High", "TOOL": "High", "SCED": "Nominal",
-        },
-    },
-    "Hotel Management System": {
-        "project_name": "Hotel Management System",
-        "description": "A medium-sized hotel management system with booking, customer management, billing, room service tracking, reports, and staff administration.",
-        "mode": "Semi-detached",
-        "kloc": 30.0,
-        "cost_per_pm": 12000000.0,
-        "drivers": {
-            "RELY": "High", "DATA": "Nominal", "CPLX": "High",
-            "TIME": "Nominal", "STOR": "Nominal", "VIRT": "Nominal", "TURN": "Nominal",
-            "ACAP": "Nominal", "AEXP": "Nominal", "PCAP": "Nominal", "VEXP": "Nominal", "LEXP": "Nominal",
-            "MODP": "Nominal", "TOOL": "Nominal", "SCED": "High",
-        },
-    },
-    "E-commerce Platform": {
-        "project_name": "E-commerce Platform",
-        "description": "An e-commerce platform with user accounts, product catalog, online payments, inventory tracking, order management, and admin analytics.",
-        "mode": "Semi-detached",
-        "kloc": 45.0,
-        "cost_per_pm": 13000000.0,
-        "drivers": {
-            "RELY": "High", "DATA": "High", "CPLX": "High",
-            "TIME": "Nominal", "STOR": "Nominal", "VIRT": "Nominal", "TURN": "Nominal",
-            "ACAP": "Nominal", "AEXP": "Low", "PCAP": "Nominal", "VEXP": "Nominal", "LEXP": "Nominal",
-            "MODP": "Nominal", "TOOL": "High", "SCED": "High",
-        },
-    },
-    "Medical Record System": {
-        "project_name": "Medical Record System",
-        "description": "A medical record management system for hospitals with patient histories, diagnostic records, laboratory integration, doctor access control, and strict reliability requirements.",
-        "mode": "Embedded",
-        "kloc": 55.0,
-        "cost_per_pm": 15000000.0,
-        "drivers": {
-            "RELY": "Very High", "DATA": "High", "CPLX": "High",
-            "TIME": "High", "STOR": "High", "VIRT": "Nominal", "TURN": "Nominal",
-            "ACAP": "Nominal", "AEXP": "Low", "PCAP": "Nominal", "VEXP": "Nominal", "LEXP": "Nominal",
-            "MODP": "High", "TOOL": "High", "SCED": "High",
-        },
-    },
-    "Banking Transaction System": {
-        "project_name": "Banking Transaction System",
-        "description": "A critical banking transaction system with strong security, high reliability, strict schedule requirements, and high transaction volume.",
-        "mode": "Embedded",
-        "kloc": 60.0,
-        "cost_per_pm": 15000000.0,
-        "drivers": {
-            "RELY": "Very High", "DATA": "Very High", "CPLX": "Very High",
-            "TIME": "Very High", "STOR": "High", "VIRT": "High", "TURN": "High",
-            "ACAP": "Nominal", "AEXP": "Low", "PCAP": "Nominal", "VEXP": "Low", "LEXP": "Nominal",
-            "MODP": "Nominal", "TOOL": "Nominal", "SCED": "Very High",
-        },
-    },
-    "Real-Time IoT Monitoring System": {
-        "project_name": "Real-Time IoT Monitoring System",
-        "description": "A real-time IoT monitoring system for industrial devices with sensor streaming, fault alerts, dashboard visualization, and strict execution time constraints.",
-        "mode": "Embedded",
-        "kloc": 70.0,
-        "cost_per_pm": 16000000.0,
-        "drivers": {
-            "RELY": "Very High", "DATA": "High", "CPLX": "Very High",
-            "TIME": "Extra High", "STOR": "High", "VIRT": "High", "TURN": "High",
-            "ACAP": "Nominal", "AEXP": "Low", "PCAP": "Nominal", "VEXP": "Low", "LEXP": "Nominal",
-            "MODP": "Nominal", "TOOL": "Nominal", "SCED": "Very High",
-        },
-    },
+    "Personal Expense Tracker": {"project_name": "Personal Expense Tracker", "description": "A simple personal expense tracking web application with category management, monthly reports, and budget summaries.", "mode": "Organic", "kloc": 8.0, "cost_per_pm": 12000000.0, "drivers": {"RELY": "Low", "DATA": "Low", "CPLX": "Low", "TIME": "Nominal", "STOR": "Nominal", "VIRT": "Low", "TURN": "Low", "ACAP": "High", "AEXP": "High", "PCAP": "High", "VEXP": "Nominal", "LEXP": "High", "MODP": "High", "TOOL": "Very High", "SCED": "Nominal"}},
+    "School Management System": {"project_name": "School Management System", "description": "A school management system with student records, teacher management, attendance tracking, exam scores, and report generation.", "mode": "Organic", "kloc": 18.0, "cost_per_pm": 12000000.0, "drivers": {"RELY": "Nominal", "DATA": "Nominal", "CPLX": "Nominal", "TIME": "Nominal", "STOR": "Nominal", "VIRT": "Nominal", "TURN": "Nominal", "ACAP": "Nominal", "AEXP": "Nominal", "PCAP": "Nominal", "VEXP": "Nominal", "LEXP": "Nominal", "MODP": "High", "TOOL": "High", "SCED": "Nominal"}},
+    "Hotel Management System": {"project_name": "Hotel Management System", "description": "A medium-sized hotel management system with booking, customer management, billing, room service tracking, reports, and staff administration.", "mode": "Semi-detached", "kloc": 30.0, "cost_per_pm": 12000000.0, "drivers": {"RELY": "High", "DATA": "Nominal", "CPLX": "High", "TIME": "Nominal", "STOR": "Nominal", "VIRT": "Nominal", "TURN": "Nominal", "ACAP": "Nominal", "AEXP": "Nominal", "PCAP": "Nominal", "VEXP": "Nominal", "LEXP": "Nominal", "MODP": "Nominal", "TOOL": "Nominal", "SCED": "High"}},
+    "E-commerce Platform": {"project_name": "E-commerce Platform", "description": "An e-commerce platform with user accounts, product catalog, online payments, inventory tracking, order management, and admin analytics.", "mode": "Semi-detached", "kloc": 45.0, "cost_per_pm": 13000000.0, "drivers": {"RELY": "High", "DATA": "High", "CPLX": "High", "TIME": "Nominal", "STOR": "Nominal", "VIRT": "Nominal", "TURN": "Nominal", "ACAP": "Nominal", "AEXP": "Low", "PCAP": "Nominal", "VEXP": "Nominal", "LEXP": "Nominal", "MODP": "Nominal", "TOOL": "High", "SCED": "High"}},
+    "Medical Record System": {"project_name": "Medical Record System", "description": "A medical record management system for hospitals with patient histories, diagnostic records, laboratory integration, doctor access control, and strict reliability requirements.", "mode": "Embedded", "kloc": 55.0, "cost_per_pm": 15000000.0, "drivers": {"RELY": "Very High", "DATA": "High", "CPLX": "High", "TIME": "High", "STOR": "High", "VIRT": "Nominal", "TURN": "Nominal", "ACAP": "Nominal", "AEXP": "Low", "PCAP": "Nominal", "VEXP": "Nominal", "LEXP": "Nominal", "MODP": "High", "TOOL": "High", "SCED": "High"}},
 }
 
 FP_WEIGHTS = {
@@ -249,35 +99,13 @@ FP_COMPONENT_LABELS = {
 }
 
 GSC_NAMES = [
-    "Data communications",
-    "Distributed data processing",
-    "Performance",
-    "Heavily used configuration",
-    "Transaction rate",
-    "Online data entry",
-    "End-user efficiency",
-    "Online update",
-    "Complex processing",
-    "Reusability",
-    "Installation ease",
-    "Operational ease",
-    "Multiple sites",
-    "Facilitate change",
+    "Data communications", "Distributed data processing", "Performance", "Heavily used configuration",
+    "Transaction rate", "Online data entry", "End-user efficiency", "Online update",
+    "Complex processing", "Reusability", "Installation ease", "Operational ease",
+    "Multiple sites", "Facilitate change",
 ]
 
-LANGUAGE_LOC_PER_FP = {
-    "Python": 50,
-    "Java": 53,
-    "C": 128,
-    "C++": 53,
-    "JavaScript": 47,
-    "C#": 54,
-    "PHP": 50,
-    "Go": 55,
-    "Ruby": 40,
-}
-
-APP_SCHEMA_VERSION = "2.0.0"
+LANGUAGE_LOC_PER_FP = {"Python": 50, "Java": 53, "C": 128, "C++": 53, "JavaScript": 47, "C#": 54, "PHP": 50, "Go": 55, "Ruby": 40}
 
 
 def now_text():
@@ -294,7 +122,7 @@ def get_openai_api_key():
 
 
 def generate_id(prefix="ID"):
-    return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
+    return f"{prefix}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{os.urandom(2).hex().upper()}"
 
 
 def format_currency_short(value: float) -> str:
@@ -321,14 +149,30 @@ def safe_int(value, default=0):
         return default
 
 
+def load_workspace():
+    if os.path.exists(WORKSPACE_FILE):
+        try:
+            with open(WORKSPACE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {"schema_version": APP_SCHEMA_VERSION, "projects": []}
+    return {"schema_version": APP_SCHEMA_VERSION, "projects": []}
+
+
+def persist_workspace(workspace: dict):
+    with open(WORKSPACE_FILE, "w", encoding="utf-8") as f:
+        json.dump(workspace, f, ensure_ascii=False, indent=2)
+
+
+def refresh_workspace():
+    st.session_state.workspace = load_workspace()
+
+
 def init_state():
     defaults = {
         "selected_preset": "Start from Scratch",
         "preset_selector": "Start from Scratch",
         "project_name": "",
-        "project_owner": "Default User",
-        "project_status": "Draft",
-        "project_domain": "",
         "description": "",
         "mode": "Organic",
         "size_input_mode": "KLOC",
@@ -348,25 +192,20 @@ def init_state():
         "workspace": load_workspace(),
         "active_project_id": "",
         "active_version_id": "",
-        "version_title": "Version mới",
-        "version_note": "",
         "import_message": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-
     for driver, meta in COST_DRIVERS.items():
         if driver not in st.session_state:
             values = list(meta["values"].keys())
             st.session_state[driver] = "Nominal" if "Nominal" in values else values[0]
-
     for component in FP_WEIGHTS:
         for level in ["Low", "Average", "High"]:
             fp_key = f"fp_{component}_{level.lower()}"
             if fp_key not in st.session_state:
                 st.session_state[fp_key] = 0
-
     for idx in range(14):
         gsc_key = f"fp_gsc_{idx}"
         if gsc_key not in st.session_state:
@@ -375,9 +214,6 @@ def init_state():
 
 def reset_form():
     st.session_state.project_name = ""
-    st.session_state.project_owner = "Default User"
-    st.session_state.project_status = "Draft"
-    st.session_state.project_domain = ""
     st.session_state.description = ""
     st.session_state.mode = "Organic"
     st.session_state.size_input_mode = "KLOC"
@@ -388,23 +224,17 @@ def reset_form():
     st.session_state.ai_suggestion = None
     st.session_state.ai_fp_result = ""
     st.session_state.selected_preset = "Start from Scratch"
-    st.session_state.version_title = "Version mới"
-    st.session_state.version_note = ""
     st.session_state.active_version_id = ""
-
     for driver, meta in COST_DRIVERS.items():
         values = list(meta["values"].keys())
         st.session_state[driver] = "Nominal" if "Nominal" in values else values[0]
-
     st.session_state.fp_language = "Python"
     st.session_state.fp_custom_loc_per_fp = float(LANGUAGE_LOC_PER_FP["Python"])
     st.session_state.fp_mode = "Organic"
     st.session_state.fp_cost_per_pm = 12000000.0
-
     for component in FP_WEIGHTS:
         for level in ["Low", "Average", "High"]:
             st.session_state[f"fp_{component}_{level.lower()}"] = 0
-
     for idx in range(14):
         st.session_state[f"fp_gsc_{idx}"] = 0
 
@@ -415,7 +245,6 @@ def apply_preset(name: str):
         reset_form()
         st.session_state.selected_preset = "Start from Scratch"
         return
-
     st.session_state.project_name = preset["project_name"]
     st.session_state.description = preset["description"]
     st.session_state.mode = preset["mode"]
@@ -427,7 +256,6 @@ def apply_preset(name: str):
     st.session_state.ai_suggestion = None
     st.session_state.ai_fp_result = ""
     st.session_state.selected_preset = name
-
     for driver, rating in preset["drivers"].items():
         st.session_state[driver] = rating
 
@@ -441,18 +269,15 @@ def process_pending_actions():
         st.session_state.kloc = kloc_value
         st.session_state.sloc = kloc_value * 1000.0
         st.session_state.pending_fp_transfer = False
-
     if st.session_state.get("pending_ai_apply"):
         suggestion = st.session_state.get("ai_suggestion")
         if suggestion:
             suggested_mode = suggestion.get("suggested_mode")
             if suggested_mode in MODES:
                 st.session_state.mode = suggested_mode
-
             for driver, rating in suggestion.get("suggested_changes", {}).items():
                 if driver in COST_DRIVERS and rating in COST_DRIVERS[driver]["values"]:
                     st.session_state[driver] = rating
-
             st.session_state.selected_preset = "Start from Scratch"
             st.session_state.preset_selector = "Start from Scratch"
         st.session_state.pending_ai_apply = False
@@ -515,7 +340,6 @@ def get_risk_level(eaf: float, selections: dict) -> str:
         high_risk_flags += 1
     if selections["ACAP"] in ["Very Low", "Low"] or selections["PCAP"] in ["Very Low", "Low"]:
         high_risk_flags += 1
-
     if high_risk_flags >= 3:
         return "High"
     if high_risk_flags == 2:
@@ -523,18 +347,19 @@ def get_risk_level(eaf: float, selections: dict) -> str:
     return "Low"
 
 
+def compute_result(project_name: str, description: str, mode: str, kloc: float, cost_per_pm: float, selections: dict):
+    eaf = calculate_eaf(selections)
+    effort, tdev, staff = cocomo_estimate(mode, kloc, eaf)
+    cost = estimate_cost(effort, cost_per_pm)
+    risk_level = get_risk_level(eaf, selections)
+    return {"project_name": project_name, "description": description, "mode": mode, "kloc": kloc, "cost_per_pm": cost_per_pm, "eaf": eaf, "effort": effort, "tdev": tdev, "staff": staff, "cost": cost, "risk_level": risk_level}
+
+
 def build_driver_df(selections: dict) -> pd.DataFrame:
     rows = []
     for driver, rating in selections.items():
         multiplier = COST_DRIVERS[driver]["values"][rating]
-        rows.append({
-            "Driver": driver,
-            "Name": COST_DRIVERS[driver]["label"],
-            "Rating": rating,
-            "Multiplier": multiplier,
-            "Impact": abs(multiplier - 1.0),
-            "Group": get_driver_group(driver),
-        })
+        rows.append({"Driver": driver, "Name": COST_DRIVERS[driver]["label"], "Rating": rating, "Multiplier": multiplier, "Impact": abs(multiplier - 1.0), "Group": get_driver_group(driver)})
     return pd.DataFrame(rows)
 
 
@@ -542,24 +367,45 @@ def get_top_impact_drivers(driver_df: pd.DataFrame) -> pd.DataFrame:
     return driver_df.sort_values(by="Impact", ascending=False).head(5)
 
 
-def compute_result(project_name: str, description: str, mode: str, kloc: float, cost_per_pm: float, selections: dict):
-    eaf = calculate_eaf(selections)
-    effort, tdev, staff = cocomo_estimate(mode, kloc, eaf)
-    cost = estimate_cost(effort, cost_per_pm)
-    risk_level = get_risk_level(eaf, selections)
-    return {
-        "project_name": project_name,
-        "description": description,
-        "mode": mode,
-        "kloc": kloc,
-        "cost_per_pm": cost_per_pm,
-        "eaf": eaf,
-        "effort": effort,
-        "tdev": tdev,
-        "staff": staff,
-        "cost": cost,
-        "risk_level": risk_level,
-    }
+
+def get_inline_warnings(project_name, description, mode, kloc, cost_per_pm, selections, fp_snapshot):
+    warnings = {"project_name": [], "description": [], "mode": [], "size": [], "cost": [], "drivers": [], "fp": []}
+    suggested_mode = suggest_mode_rule_based(description)
+
+    if not project_name.strip():
+        warnings["project_name"].append("Project Name is empty.")
+    if len((description or "").strip()) < 15:
+        warnings["description"].append("Description is too short. AI and estimation may lack context.")
+    if mode != suggested_mode and description.strip():
+        warnings["mode"].append(f"Description currently suggests {suggested_mode} more than {mode}.")
+    if kloc < 1:
+        warnings["size"].append("KLOC is very small. Please verify the size unit.")
+    if kloc > 1000:
+        warnings["size"].append("KLOC is very large. Please verify KLOC/SLOC.")
+    if cost_per_pm < 3000000:
+        warnings["cost"].append("Cost per Person-Month is very low and may be unrealistic.")
+    if selections["RELY"] in ["High", "Very High"] and mode == "Organic":
+        warnings["mode"].append("High reliability with Organic mode may be inconsistent.")
+    if selections["TIME"] in ["Very High", "Extra High"] and mode == "Organic":
+        warnings["mode"].append("Very high time constraint with Organic mode may be inconsistent.")
+    if selections["SCED"] in ["High", "Very High"] and selections["TOOL"] in ["Very Low", "Low", "Nominal"]:
+        warnings["drivers"].append("Schedule pressure is high while TOOL support is still low.")
+    if selections["ACAP"] in ["Very Low", "Low"] and selections["PCAP"] in ["Very Low", "Low"]:
+        warnings["drivers"].append("Both analyst capability and programmer capability are low.")
+    if selections["CPLX"] in ["Very High", "Extra High"] and kloc < 5:
+        warnings["drivers"].append("Product complexity is very high while KLOC is still very small.")
+    if fp_snapshot["fp"] > 0 and kloc > 0:
+        diff_pct = abs(fp_snapshot["kloc"] - kloc) / kloc
+        if diff_pct >= 0.5:
+            warnings["fp"].append(f"Manual KLOC ({kloc:.2f}) differs a lot from FP KLOC ({fp_snapshot['kloc']:.2f}).")
+    return warnings
+
+
+def flatten_warnings(warnings: dict):
+    all_msgs = []
+    for msgs in warnings.values():
+        all_msgs.extend(msgs)
+    return all_msgs
 
 
 def fallback_ai_summary(description, mode, kloc, eaf, effort, tdev, staff, cost, selections):
@@ -567,102 +413,85 @@ def fallback_ai_summary(description, mode, kloc, eaf, effort, tdev, staff, cost,
     recommendations = []
 
     if selections["CPLX"] in ["High", "Very High", "Extra High"]:
-        risks.append("Độ phức tạp dự án cao, làm effort tăng đáng kể.")
-        recommendations.append("Tách hệ thống thành module nhỏ hơn hoặc chia giai đoạn triển khai.")
-
+        risks.append("Product complexity is high, so effort increases significantly.")
+        recommendations.append("Split the system into smaller modules or phases.")
     if selections["RELY"] in ["High", "Very High"]:
-        risks.append("Yêu cầu độ tin cậy cao làm effort cho kiểm thử và xác minh tăng mạnh.")
-        recommendations.append("Bổ sung thêm thời gian cho test, review, QA và bảo mật.")
-
+        risks.append("High reliability requirements increase testing and verification effort.")
+        recommendations.append("Allocate more time to testing, review, QA, and security.")
     if selections["ACAP"] in ["Very Low", "Low"] or selections["PCAP"] in ["Very Low", "Low"]:
-        risks.append("Năng lực nhân sự hiện tại có thể làm giảm năng suất thực tế.")
-        recommendations.append("Tăng mentoring, review hoặc phân công người mạnh hơn vào phần lõi.")
-
+        risks.append("Current team capability may reduce actual productivity.")
+        recommendations.append("Increase mentoring or assign stronger members to core modules.")
     if selections["TOOL"] in ["Very Low", "Low"]:
-        risks.append("Tool support còn yếu nên tốc độ phát triển sẽ giảm.")
-        recommendations.append("Nâng cấp IDE, test tools, Git workflow, CI/CD hoặc automation.")
-
+        risks.append("Weak tool support can slow down development.")
+        recommendations.append("Improve IDE, test tools, workflow, and automation.")
     if selections["SCED"] in ["High", "Very High"]:
-        risks.append("Deadline gắt làm tăng khả năng trễ tiến độ và giảm chất lượng.")
-        recommendations.append("Nên kiểm soát scope hoặc nới timeline.")
-
+        risks.append("Aggressive schedule increases delivery and quality risk.")
+        recommendations.append("Reduce scope or relax the schedule.")
     if not risks:
-        risks.append("Chưa thấy rủi ro nổi bật từ bộ cost drivers hiện tại.")
-
+        risks.append("No major risk stands out from the current cost driver configuration.")
     if not recommendations:
-        recommendations.append("Cấu hình hiện tại tương đối cân bằng.")
+        recommendations.append("The current setup is relatively balanced.")
 
     return f"""
-### Phân tích estimate dự án
+### AI Project Analysis
 
-**Mode đang dùng:** {mode}  
-**KLOC:** {kloc:.2f}  
-**EAF:** {eaf:.3f}  
-**Effort:** {effort:.2f} person-months  
-**Development Time:** {tdev:.2f} months  
-**Average Team Size:** {staff:.2f}  
-**Estimated Cost:** {cost:,.0f} VND  
+**1. Mode assessment**
+- Current mode: **{mode}**
+- Suggested mode from description: **{suggest_mode_rule_based(description)}**
+- The current mode should be reviewed if it differs from the project description.
 
-**Đánh giá nhanh**
-- Mode gợi ý theo mô tả: **{suggest_mode_rule_based(description)}**
-- Rủi ro tổng thể: **{get_risk_level(eaf, selections)}**
+**2. Why effort and cost are at this level**
+- KLOC: **{kloc:.2f}**
+- EAF: **{eaf:.3f}**
+- Effort: **{effort:.2f} person-months**
+- Development time: **{tdev:.2f} months**
+- Team size: **{staff:.2f}**
+- Estimated cost: **{cost:,.0f} VND**
 
-**Rủi ro chính**
+**3. Main risks**
 {chr(10).join([f"- {r}" for r in risks])}
 
-**Khuyến nghị**
+**4. Practical recommendations**
 {chr(10).join([f"- {r}" for r in recommendations])}
+
+**5. Conclusion**
+- The project is feasible, but cost and effort can still be optimized.
+- The final result strongly depends on the selected mode, cost drivers, and the realism of the KLOC estimate.
 """.strip()
 
 
 def fallback_fp_ai_summary(fp_data: dict, fp_based_result: dict):
     fp_value = fp_data["fp"]
-    ufp = fp_data["ufp"]
-    di = fp_data["di"]
-    vaf = fp_data["vaf"]
-    sloc = fp_data["sloc"]
-    kloc = fp_data["kloc"]
-    language = fp_data["language"]
-    loc_per_fp = fp_data["loc_per_fp"]
-
-    comments = []
     if fp_value < 50:
-        comments.append("Quy mô FP đang ở mức nhỏ, phù hợp với hệ thống đơn giản hoặc phạm vi hẹp.")
+        fp_scale = "small"
     elif fp_value < 200:
-        comments.append("Quy mô FP đang ở mức trung bình, phù hợp với phần lớn đồ án hoặc hệ thống nghiệp vụ vừa.")
+        fp_scale = "medium"
     else:
-        comments.append("Quy mô FP khá lớn, nên rà soát lại phạm vi chức năng và chia module hợp lý.")
-
-    if vaf >= 1.00:
-        comments.append("VAF tương đối cao, cho thấy hệ thống có nhiều đặc tính tổng quát làm tăng độ khó.")
-    else:
-        comments.append("VAF chưa quá cao, nghĩa là các đặc tính tổng quát chưa làm hệ thống tăng độ khó mạnh.")
+        fp_scale = "large"
 
     return f"""
-### Phân tích Function Point
+### AI Analysis for Function Point
 
-**UFP:** {ufp:.2f}  
-**DI:** {di}  
-**VAF:** {vaf:.2f}  
-**FP:** {fp_value:.2f}  
-**Ngôn ngữ quy đổi:** {language}  
-**LOC per FP:** {loc_per_fp:.2f}  
-**SLOC ước tính:** {sloc:,.0f}  
-**KLOC ước tính:** {kloc:.2f}  
+**1. FP size assessment**
+- FP size is currently **{fp_scale}** with **{fp_value:.2f} FP**.
 
-**Đánh giá**
-- {comments[0]}
-- {comments[1]}
+**2. Meaning of VAF**
+- DI = **{fp_data["di"]}**
+- VAF = **{fp_data["vaf"]:.2f}**
+- A higher VAF means general system characteristics have stronger impact on functional size.
 
-**COCOMO từ FP**
+**3. Conversion meaning**
+- Language: **{fp_data["language"]}**
+- LOC per FP: **{fp_data["loc_per_fp"]:.2f}**
+- SLOC: **{fp_data["sloc"]:,.0f}**
+- KLOC: **{fp_data["kloc"]:.2f}**
+- This KLOC can be compared with manual KLOC to validate scope and size.
+
+**4. COCOMO from FP**
 - Effort: **{fp_based_result["effort"]:.2f} PM**
 - Time: **{fp_based_result["tdev"]:.2f} months**
 - Team Size: **{fp_based_result["staff"]:.2f}**
 - Cost: **{fp_based_result["cost"]:,.0f} VND**
-
-**Khuyến nghị**
-- Nên so sánh KLOC nhập tay với KLOC suy ra từ FP để tránh ước lượng lệch.
-- Nếu FP-derived KLOC lệch quá xa manual KLOC thì nên review lại scope hoặc cách chấm FP.
 """.strip()
 
 
@@ -670,57 +499,38 @@ def call_ai_analysis(description, mode, kloc, eaf, effort, tdev, staff, cost, se
     api_key = get_openai_api_key()
     if not api_key or OpenAI is None:
         return None, "AI unavailable"
-
     try:
         client = OpenAI(api_key=api_key)
-
-        driver_text = "\n".join(
-            [f"{k}: {v} (multiplier={COST_DRIVERS[k]['values'][v]})" for k, v in selections.items()]
-        )
-
+        driver_text = "\n".join([f"{k}: {v} (multiplier={COST_DRIVERS[k]['values'][v]})" for k, v in selections.items()])
         prompt = f"""
-Bạn là trợ lý hỗ trợ project manager trong ước lượng dự án phần mềm.
+Bạn là chuyên gia ước lượng chi phí phần mềm.
 
-Mô tả dự án:
+Phân tích dự án dưới đây bằng tiếng Việt, rõ ràng, chi tiết vừa phải, chia đúng 5 mục:
+
+1. Đánh giá development mode hiện tại có phù hợp không
+2. Giải thích vì sao effort / cost ở mức này
+3. Liệt kê 3 rủi ro lớn nhất
+4. Đưa ra 3 khuyến nghị cụ thể để tối ưu effort / cost / risk
+5. Kết luận ngắn cho project manager hoặc giảng viên
+
+Dữ liệu:
+Project description:
 {description}
 
-Development mode đang chọn:
-{mode}
+Mode: {mode}
+KLOC: {kloc:.2f}
+EAF: {eaf:.3f}
+Effort: {effort:.2f} person-months
+Development time: {tdev:.2f} months
+Average team size: {staff:.2f}
+Estimated cost: {cost:,.0f} VND
 
-Kích thước ước lượng:
-{kloc:.2f} KLOC
-
-Cost drivers đã chọn:
+Cost drivers:
 {driver_text}
 
-EAF đã tính:
-{eaf:.3f}
-
-Effort đã tính:
-{effort:.2f} person-months
-
-Development time đã tính:
-{tdev:.2f} months
-
-Average team size:
-{staff:.2f}
-
-Estimated cost:
-{cost:,.0f} VND
-
-Hãy trả lời bằng tiếng Việt, ngắn gọn, rõ ràng, có 5 phần:
-1. Mode hiện tại có phù hợp không
-2. Giải thích vì sao effort/cost ở mức này
-3. Rủi ro chính
-4. Khuyến nghị giảm effort/cost
-5. Kết luận 2-3 câu cho manager
-
-Không dùng markdown phức tạp.
+Viết bằng tiếng Việt, dễ hiểu, có tiêu đề cho từng mục, không lan man.
 """
-        response = client.responses.create(
-            model=AI_MODEL_NAME,
-            input=prompt,
-        )
+        response = client.responses.create(model=AI_MODEL_NAME, input=prompt)
         text = response.output_text
         if text and text.strip():
             return text, None
@@ -733,11 +543,16 @@ def call_ai_fp_analysis(fp_data: dict, fp_based_result: dict):
     api_key = get_openai_api_key()
     if not api_key or OpenAI is None:
         return None, "AI unavailable"
-
     try:
         client = OpenAI(api_key=api_key)
         prompt = f"""
-Bạn là trợ lý phân tích Function Point cho project estimation.
+Bạn là trợ lý phân tích Function Point.
+
+Hãy phân tích bằng tiếng Việt với 4 mục:
+1. Nhận xét quy mô FP
+2. Ý nghĩa của VAF
+3. Ý nghĩa của KLOC quy đổi từ FP
+4. Kết luận ngắn
 
 Dữ liệu FP:
 - UFP: {fp_data["ufp"]:.2f}
@@ -755,19 +570,8 @@ Kết quả COCOMO từ FP:
 - Time: {fp_based_result["tdev"]:.2f}
 - Team Size: {fp_based_result["staff"]:.2f}
 - Cost: {fp_based_result["cost"]:,.0f} VND
-
-Hãy trả lời bằng tiếng Việt với 4 phần:
-1. Nhận xét quy mô FP
-2. Ý nghĩa của VAF và ảnh hưởng của nó
-3. Đánh giá KLOC quy đổi từ FP có hợp lý không
-4. Kết luận ngắn gọn cho project manager hoặc sinh viên
-
-Ngắn gọn, thực tế, dễ hiểu.
 """
-        response = client.responses.create(
-            model=AI_MODEL_NAME,
-            input=prompt,
-        )
+        response = client.responses.create(model=AI_MODEL_NAME, input=prompt)
         text = response.output_text
         if text and text.strip():
             return text, None
@@ -780,12 +584,10 @@ def extract_json_object(text: str):
     if not text:
         return None
     text = text.strip()
-
     try:
         return json.loads(text)
     except Exception:
         pass
-
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
@@ -796,14 +598,7 @@ def extract_json_object(text: str):
 
 
 def sanitize_ai_suggestion(data: dict, current_mode: str, current_selections: dict):
-    suggestion = {
-        "suggested_mode": current_mode,
-        "suggested_changes": {},
-        "goals": [],
-        "reasoning": [],
-        "expected_effect": "",
-    }
-
+    suggestion = {"suggested_mode": current_mode, "suggested_changes": {}, "goals": [], "reasoning": [], "expected_effect": ""}
     if not isinstance(data, dict):
         return suggestion
 
@@ -825,15 +620,12 @@ def sanitize_ai_suggestion(data: dict, current_mode: str, current_selections: di
     if isinstance(reasoning, list):
         suggestion["reasoning"] = [str(x) for x in reasoning][:6]
 
-    expected_effect = data.get("expected_effect", "")
-    suggestion["expected_effect"] = str(expected_effect)
-
+    suggestion["expected_effect"] = str(data.get("expected_effect", ""))
     return suggestion
 
 
 def fallback_ai_optimization(current_mode: str, selections: dict):
     changes = {}
-
     if selections["TOOL"] in ["Very Low", "Low", "Nominal"]:
         changes["TOOL"] = "High"
     if selections["MODP"] in ["Very Low", "Low", "Nominal"]:
@@ -852,12 +644,13 @@ def fallback_ai_optimization(current_mode: str, selections: dict):
         "suggested_changes": changes,
         "goals": ["Giảm effort", "Giảm rủi ro"],
         "reasoning": [
-            "Tăng chất lượng tool support giúp giảm effort phát triển.",
-            "Tăng modern practices giúp cải thiện năng suất team.",
-            "Giảm schedule pressure giúp giảm rủi ro tiến độ.",
+            "Better tool support can reduce development effort.",
+            "Modern practices can improve productivity.",
+            "Reducing schedule pressure lowers delivery risk.",
         ],
-        "expected_effect": "Cấu hình đề xuất có khả năng giảm effort, cost và risk so với baseline hiện tại.",
+        "expected_effect": "The suggested setup may reduce effort, cost, and overall risk.",
     }
+
 
 
 def call_ai_optimization(project_name: str, description: str, current_result: dict, selections: dict):
@@ -869,10 +662,7 @@ def call_ai_optimization(project_name: str, description: str, current_result: di
 
     try:
         client = OpenAI(api_key=api_key)
-
-        driver_text = "\n".join(
-            [f"{k}: {v} (multiplier={COST_DRIVERS[k]['values'][v]})" for k, v in selections.items()]
-        )
+        driver_text = "\n".join([f"{k}: {v} (multiplier={COST_DRIVERS[k]['values'][v]})" for k, v in selections.items()])
 
         prompt = f"""
 Bạn là trợ lý tối ưu estimate dự án phần mềm.
@@ -898,34 +688,23 @@ Risk level: {current_result["risk_level"]}
 Current cost drivers:
 {driver_text}
 
-Hãy đề xuất một cấu hình tốt hơn theo dạng JSON hợp lệ, không markdown, không giải thích ngoài JSON.
-Chỉ dùng đúng các driver hiện có.
-Chỉ thay đổi tối đa 5 cost drivers.
-Không được thay đổi KLOC.
+Hãy trả về JSON hợp lệ, không markdown, chỉ thay đổi tối đa 5 cost drivers, không đổi KLOC.
 
-JSON phải có đúng cấu trúc:
+JSON format:
 {{
   "suggested_mode": "Organic or Semi-detached or Embedded",
   "suggested_changes": {{
-    "TOOL": "High",
-    "MODP": "High"
+    "TOOL": "High"
   }},
   "goals": ["Giảm effort", "Giảm rủi ro"],
-  "reasoning": [
-    "reason 1",
-    "reason 2"
-  ],
-  "expected_effect": "short summary"
+  "reasoning": ["..."],
+  "expected_effect": "..."
 }}
 """
-        response = client.responses.create(
-            model=AI_MODEL_NAME,
-            input=prompt,
-        )
+        response = client.responses.create(model=AI_MODEL_NAME, input=prompt)
         parsed = extract_json_object(response.output_text)
         if parsed is None:
             return fallback, "Invalid AI JSON"
-
         suggestion = sanitize_ai_suggestion(parsed, current_result["mode"], selections)
         if not suggestion["suggested_changes"] and suggestion["suggested_mode"] == current_result["mode"]:
             return fallback, "Weak AI suggestion"
@@ -937,11 +716,9 @@ JSON phải có đúng cấu trúc:
 def apply_suggestion_to_result(current_result: dict, current_selections: dict, suggestion: dict):
     suggested_mode = suggestion.get("suggested_mode", current_result["mode"])
     suggested_selections = current_selections.copy()
-
     for driver, rating in suggestion.get("suggested_changes", {}).items():
         if driver in COST_DRIVERS and rating in COST_DRIVERS[driver]["values"]:
             suggested_selections[driver] = rating
-
     suggested_result = compute_result(
         project_name=current_result["project_name"],
         description=current_result["description"],
@@ -1016,7 +793,6 @@ def get_fp_snapshot():
     loc_per_fp = get_fp_loc_per_fp()
     sloc = fp_value * loc_per_fp
     kloc = sloc / 1000.0
-
     gsc = {GSC_NAMES[idx]: int(st.session_state[f"fp_gsc_{idx}"]) for idx in range(14)}
 
     return {
@@ -1052,7 +828,7 @@ def load_history_df() -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def export_text_report(result: dict, selections: dict, ai_text: str, fp_data: dict, validation_messages: list):
+def export_text_report(result: dict, selections: dict, ai_text: str, fp_data: dict, warnings: list):
     lines = [
         "PROFESSIONAL SOFTWARE ESTIMATION REPORT",
         "=" * 50,
@@ -1072,25 +848,18 @@ def export_text_report(result: dict, selections: dict, ai_text: str, fp_data: di
         f"Estimated Cost: {result['cost']:,.0f} VND",
         f"Risk Level: {result['risk_level']}",
         "",
-        "VALIDATION",
+        "INLINE WARNINGS",
         "-" * 20,
     ]
-
-    if validation_messages:
-        for msg in validation_messages:
+    if warnings:
+        for msg in warnings:
             lines.append(f"- {msg}")
     else:
-        lines.append("Không có cảnh báo logic đáng chú ý.")
-
-    lines.extend([
-        "",
-        "COST DRIVERS",
-        "-" * 20,
-    ])
+        lines.append("No warning.")
+    lines.extend(["", "COST DRIVERS", "-" * 20])
     for driver, rating in selections.items():
         multiplier = COST_DRIVERS[driver]["values"][rating]
         lines.append(f"{driver} - {rating} (multiplier={multiplier})")
-
     lines.extend([
         "",
         "FUNCTION POINT",
@@ -1105,73 +874,141 @@ def export_text_report(result: dict, selections: dict, ai_text: str, fp_data: di
         "",
         "AI ANALYSIS",
         "-" * 20,
-        ai_text if ai_text else "Chưa có AI analysis.",
+        ai_text if ai_text else "No AI analysis.",
     ])
     return "\n".join(lines)
 
 
-def validate_inputs(project_name, description, mode, kloc, cost_per_pm, selections, fp_snapshot):
-    warnings = []
-    text = (description or "").lower()
-    suggested_mode = suggest_mode_rule_based(description)
 
-    if not project_name.strip():
-        warnings.append("Project Name đang để trống.")
-    if len((description or "").strip()) < 15:
-        warnings.append("Project Description quá ngắn, AI và estimate dễ thiếu ngữ cảnh.")
-    if kloc < 1:
-        warnings.append("KLOC rất nhỏ, cần chắc chắn đây không phải nhập thiếu đơn vị.")
-    if kloc > 1000:
-        warnings.append("KLOC quá lớn, cần kiểm tra lại đơn vị KLOC/SLOC.")
-    if cost_per_pm < 3000000:
-        warnings.append("Cost per Person-Month khá thấp, có thể không thực tế.")
-    if mode != suggested_mode and description.strip():
-        warnings.append(f"Mode hiện tại là {mode} nhưng mô tả đang gợi ý {suggested_mode}.")
-    if selections["RELY"] in ["High", "Very High"] and mode == "Organic":
-        warnings.append("RELY cao nhưng mode đang là Organic, nên kiểm tra lại.")
-    if selections["TIME"] in ["Very High", "Extra High"] and mode == "Organic":
-        warnings.append("TIME rất cao nhưng mode đang là Organic, có thể chưa phù hợp.")
-    if selections["CPLX"] in ["Very High", "Extra High"] and kloc < 5:
-        warnings.append("CPLX rất cao nhưng KLOC lại khá nhỏ, nên rà soát lại scope.")
-    if selections["SCED"] in ["High", "Very High"] and selections["TOOL"] in ["Very Low", "Low", "Nominal"]:
-        warnings.append("Deadline gắt nhưng TOOL support thấp, rủi ro trễ tiến độ khá cao.")
-    if selections["ACAP"] in ["Very Low", "Low"] and selections["PCAP"] in ["Very Low", "Low"]:
-        warnings.append("Cả năng lực analyst và programmer đều thấp, estimate có thể quá lạc quan.")
-    if fp_snapshot["fp"] > 0:
-        manual_kloc = kloc
-        fp_kloc = fp_snapshot["kloc"]
-        if manual_kloc > 0:
-            diff_pct = abs(fp_kloc - manual_kloc) / manual_kloc
-            if diff_pct >= 0.5:
-                warnings.append(
-                    f"KLOC nhập tay ({manual_kloc:.2f}) lệch nhiều so với KLOC từ FP ({fp_kloc:.2f})."
-                )
-    return warnings
+def make_bar_drawing(title: str, categories, values, width=460, height=220):
+    drawing = Drawing(width, height)
+    drawing.add(String(10, height - 18, title, fontSize=12))
+    chart = VerticalBarChart()
+    chart.x = 40
+    chart.y = 35
+    chart.height = height - 70
+    chart.width = width - 70
+    chart.data = [tuple(values)]
+    chart.categoryAxis.categoryNames = [str(x) for x in categories]
+    chart.valueAxis.valueMin = 0
+    chart.bars[0].fillColor = colors.HexColor("#4e79a7")
+    chart.strokeColor = colors.black
+    drawing.add(chart)
+    return drawing
 
 
-def build_validation_df(messages: list):
-    if not messages:
-        return pd.DataFrame([{"Severity": "OK", "Message": "Không có cảnh báo logic đáng chú ý."}])
-    return pd.DataFrame([{"Severity": "Warning", "Message": msg} for msg in messages])
+def make_pie_drawing(title: str, labels, values, width=460, height=240):
+    drawing = Drawing(width, height)
+    drawing.add(String(10, height - 18, title, fontSize=12))
+    pie = Pie()
+    pie.x = 80
+    pie.y = 30
+    pie.width = 140
+    pie.height = 140
+    pie.data = [max(float(v), 0.0) for v in values]
+    pie.labels = [str(x) for x in labels]
+    pie.slices.strokeWidth = 0.5
+    drawing.add(pie)
+    return drawing
 
 
-def load_workspace():
-    if os.path.exists(WORKSPACE_FILE):
-        try:
-            with open(WORKSPACE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {"schema_version": APP_SCHEMA_VERSION, "projects": []}
-    return {"schema_version": APP_SCHEMA_VERSION, "projects": []}
+def make_pdf_report_bytes(project_name: str, result: dict, selections: dict, fp_snapshot: dict, warnings: list, ai_text: str):
+    if not REPORTLAB_AVAILABLE:
+        return None
 
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=28, rightMargin=28, topMargin=26, bottomMargin=26)
 
-def persist_workspace(workspace: dict):
-    with open(WORKSPACE_FILE, "w", encoding="utf-8") as f:
-        json.dump(workspace, f, ensure_ascii=False, indent=2)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TitleCustom", parent=styles["Title"], alignment=TA_CENTER, fontSize=18, leading=22)
+    heading_style = ParagraphStyle("HeadingCustom", parent=styles["Heading2"], alignment=TA_LEFT, fontSize=12, textColor=colors.HexColor("#0d47a1"))
+    normal_style = ParagraphStyle("NormalCustom", parent=styles["Normal"], fontSize=9, leading=13)
 
+    story = []
+    story.append(Paragraph("Professional Software Estimation Report", title_style))
+    story.append(Spacer(1, 10))
 
-def refresh_workspace():
-    st.session_state.workspace = load_workspace()
+    summary_data = [
+        ["Generated At", now_text()],
+        ["Project Name", project_name or "-"],
+        ["Mode", result["mode"]],
+        ["KLOC", f"{result['kloc']:.2f}"],
+        ["EAF", f"{result['eaf']:.3f}"],
+        ["Effort", f"{result['effort']:.2f} PM"],
+        ["Time", f"{result['tdev']:.2f} months"],
+        ["Team Size", f"{result['staff']:.2f}"],
+        ["Cost", f"{result['cost']:,.0f} VND"],
+        ["Risk", result["risk_level"]],
+    ]
+    story.append(Paragraph("1. Executive Summary", heading_style))
+    summary_table = Table(summary_data, colWidths=[120, 360])
+    summary_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e3f2fd")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("2. Charts", heading_style))
+    driver_df = build_driver_df(selections)
+    top5_df = get_top_impact_drivers(driver_df)
+    story.append(make_bar_drawing("Top 5 Driver Multipliers", list(top5_df["Driver"]), list(top5_df["Multiplier"])))
+    story.append(Spacer(1, 8))
+
+    cost_breakdown_labels = ["Development", "Testing & QA", "Management", "Tools & Infrastructure"]
+    cost_breakdown_values = [result["cost"] * 0.55, result["cost"] * 0.20, result["cost"] * 0.15, result["cost"] * 0.10]
+    story.append(make_pie_drawing("Estimated Cost Breakdown", cost_breakdown_labels, cost_breakdown_values))
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("3. Inline Warnings", heading_style))
+    if warnings:
+        for msg in warnings:
+            story.append(Paragraph(f"- {msg}", normal_style))
+    else:
+        story.append(Paragraph("No inline warning.", normal_style))
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("4. Cost Drivers", heading_style))
+    driver_rows = [["Driver", "Rating", "Multiplier"]]
+    for driver, rating in selections.items():
+        driver_rows.append([driver, rating, str(COST_DRIVERS[driver]["values"][rating])])
+    driver_table = Table(driver_rows, colWidths=[80, 200, 100])
+    driver_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#bbdefb")),
+    ]))
+    story.append(driver_table)
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("5. Function Point Summary", heading_style))
+    fp_rows = [
+        ["Language", fp_snapshot["language"]],
+        ["LOC per FP", f"{fp_snapshot['loc_per_fp']:.2f}"],
+        ["UFP", f"{fp_snapshot['ufp']:.2f}"],
+        ["DI", f"{fp_snapshot['di']}"],
+        ["VAF", f"{fp_snapshot['vaf']:.2f}"],
+        ["FP", f"{fp_snapshot['fp']:.2f}"],
+        ["SLOC", f"{fp_snapshot['sloc']:,.0f}"],
+        ["KLOC", f"{fp_snapshot['kloc']:.2f}"],
+    ]
+    fp_table = Table(fp_rows, colWidths=[120, 180])
+    fp_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e8f5e9")),
+    ]))
+    story.append(fp_table)
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("6. AI Project Analysis", heading_style))
+    ai_render = (ai_text or "No AI analysis.").replace("\n", "<br/>")
+    story.append(Paragraph(ai_render, normal_style))
+
+    doc.build(story)
+    pdf = buffer.getvalue()
+    buffer.close()
+    return pdf
+
 
 
 def find_project_by_id(project_id: str):
@@ -1195,20 +1032,17 @@ def get_next_version_no(project: dict):
     return max(v.get("version_no", 0) for v in versions) + 1
 
 
-def build_current_version_payload(result: dict, selections: dict, fp_snapshot: dict, validation_messages: list):
+def build_current_version_payload(result: dict, selections: dict, fp_snapshot: dict, warnings: list):
     return {
         "version_id": st.session_state.active_version_id or generate_id("VER"),
         "version_no": 0,
-        "title": st.session_state.version_title.strip() or "Version mới",
-        "note": st.session_state.version_note.strip(),
+        "title": "Auto Save",
+        "note": "",
         "created_at": now_text(),
         "updated_at": now_text(),
         "is_baseline": False,
         "project_meta": {
             "project_name": st.session_state.project_name,
-            "project_owner": st.session_state.project_owner,
-            "project_status": st.session_state.project_status,
-            "project_domain": st.session_state.project_domain,
             "description": st.session_state.description,
         },
         "input": {
@@ -1219,15 +1053,10 @@ def build_current_version_payload(result: dict, selections: dict, fp_snapshot: d
             "cost_per_pm": st.session_state.cost_per_pm,
         },
         "cost_drivers": deepcopy(selections),
-        "cost_driver_multipliers": {
-            driver: COST_DRIVERS[driver]["values"][rating] for driver, rating in selections.items()
-        },
+        "cost_driver_multipliers": {driver: COST_DRIVERS[driver]["values"][rating] for driver, rating in selections.items()},
         "result": deepcopy(result),
-        "validation_messages": deepcopy(validation_messages),
-        "ai": {
-            "analysis": st.session_state.ai_result,
-            "suggestion": deepcopy(st.session_state.ai_suggestion),
-        },
+        "inline_warnings": deepcopy(warnings),
+        "ai": {"analysis": st.session_state.ai_result, "suggestion": deepcopy(st.session_state.ai_suggestion)},
         "fp": deepcopy(fp_snapshot),
     }
 
@@ -1237,19 +1066,14 @@ def create_new_project_with_version(version_payload: dict):
     project = {
         "project_id": project_id,
         "project_name": version_payload["project_meta"]["project_name"] or "Untitled Project",
-        "project_owner": version_payload["project_meta"]["project_owner"],
-        "project_status": version_payload["project_meta"]["project_status"],
-        "project_domain": version_payload["project_meta"]["project_domain"],
         "description": version_payload["project_meta"]["description"],
         "created_at": now_text(),
         "updated_at": now_text(),
         "versions": [],
     }
-
     version_payload["version_no"] = 1
     version_payload["is_baseline"] = True
     project["versions"].append(version_payload)
-
     st.session_state.workspace["projects"].append(project)
     persist_workspace(st.session_state.workspace)
     st.session_state.active_project_id = project_id
@@ -1261,19 +1085,13 @@ def save_current_as_new_version(version_payload: dict):
     if not project:
         create_new_project_with_version(version_payload)
         return
-
     version_payload["version_id"] = generate_id("VER")
     version_payload["version_no"] = get_next_version_no(project)
     version_payload["is_baseline"] = False
-
     project["project_name"] = version_payload["project_meta"]["project_name"] or project["project_name"]
-    project["project_owner"] = version_payload["project_meta"]["project_owner"]
-    project["project_status"] = version_payload["project_meta"]["project_status"]
-    project["project_domain"] = version_payload["project_meta"]["project_domain"]
     project["description"] = version_payload["project_meta"]["description"]
     project["updated_at"] = now_text()
     project["versions"].append(version_payload)
-
     persist_workspace(st.session_state.workspace)
     st.session_state.active_version_id = version_payload["version_id"]
 
@@ -1282,11 +1100,9 @@ def set_baseline(project_id: str, version_id: str):
     project = find_project_by_id(project_id)
     if not project:
         return False
-
     for version in project.get("versions", []):
         version["is_baseline"] = version["version_id"] == version_id
         version["updated_at"] = now_text()
-
     project["updated_at"] = now_text()
     persist_workspace(st.session_state.workspace)
     return True
@@ -1310,17 +1126,12 @@ def load_version_to_form(project_id: str, version_id: str):
     st.session_state.active_project_id = project_id
     st.session_state.active_version_id = version_id
     st.session_state.project_name = version["project_meta"].get("project_name", "")
-    st.session_state.project_owner = version["project_meta"].get("project_owner", "Default User")
-    st.session_state.project_status = version["project_meta"].get("project_status", "Draft")
-    st.session_state.project_domain = version["project_meta"].get("project_domain", "")
     st.session_state.description = version["project_meta"].get("description", "")
     st.session_state.mode = version["input"].get("mode", "Organic")
     st.session_state.size_input_mode = version["input"].get("size_input_mode", "KLOC")
     st.session_state.kloc = safe_float(version["input"].get("kloc", 1.0), 1.0)
     st.session_state.sloc = safe_float(version["input"].get("sloc", st.session_state.kloc * 1000), 1000.0)
     st.session_state.cost_per_pm = safe_float(version["input"].get("cost_per_pm", 12000000), 12000000.0)
-    st.session_state.version_title = version.get("title", "Version mới")
-    st.session_state.version_note = version.get("note", "")
     st.session_state.ai_result = version.get("ai", {}).get("analysis", "")
     st.session_state.ai_suggestion = version.get("ai", {}).get("suggestion", None)
 
@@ -1346,7 +1157,6 @@ def load_version_to_form(project_id: str, version_id: str):
     gsc = fp_data.get("gsc", {})
     for idx, name in enumerate(GSC_NAMES):
         st.session_state[f"fp_gsc_{idx}"] = safe_int(gsc.get(name, 0), 0)
-
     return True
 
 
@@ -1357,23 +1167,18 @@ def build_project_package(project_id: str, version_id: str):
     version = find_version_by_id(project, version_id)
     if not version:
         return None
-
-    package = {
+    return {
         "schema_version": APP_SCHEMA_VERSION,
         "exported_at": now_text(),
         "project": {
             "project_id": project["project_id"],
             "project_name": project["project_name"],
-            "project_owner": project["project_owner"],
-            "project_status": project["project_status"],
-            "project_domain": project["project_domain"],
             "description": project["description"],
             "created_at": project["created_at"],
             "updated_at": project["updated_at"],
         },
         "version": deepcopy(version),
     }
-    return package
 
 
 def import_project_package(uploaded_file):
@@ -1381,25 +1186,19 @@ def import_project_package(uploaded_file):
         data = json.load(uploaded_file)
     except Exception:
         return False, "File JSON không hợp lệ."
-
     if not isinstance(data, dict):
         return False, "Cấu trúc JSON không đúng."
-
     if "project" not in data or "version" not in data:
         return False, "JSON thiếu project hoặc version."
 
     project_block = data["project"]
     version_block = data["version"]
-
     new_project_id = generate_id("PRJ")
     new_version_id = generate_id("VER")
 
     project = {
         "project_id": new_project_id,
         "project_name": project_block.get("project_name", "Imported Project"),
-        "project_owner": project_block.get("project_owner", "Imported User"),
-        "project_status": project_block.get("project_status", "Draft"),
-        "project_domain": project_block.get("project_domain", ""),
         "description": project_block.get("description", ""),
         "created_at": now_text(),
         "updated_at": now_text(),
@@ -1420,108 +1219,7 @@ def import_project_package(uploaded_file):
     st.session_state.active_project_id = new_project_id
     st.session_state.active_version_id = new_version_id
     load_version_to_form(new_project_id, new_version_id)
-
     return True, f"Import thành công project: {project['project_name']}"
-
-
-def make_pdf_report_bytes(project_meta: dict, result: dict, selections: dict, fp_snapshot: dict, validation_messages: list, ai_text: str):
-    if not REPORTLAB_AVAILABLE:
-        return None
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=32,
-        rightMargin=32,
-        topMargin=28,
-        bottomMargin=28,
-    )
-
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("TitleCustom", parent=styles["Title"], alignment=TA_CENTER, fontSize=18, leading=22)
-    heading_style = ParagraphStyle("HeadingCustom", parent=styles["Heading2"], alignment=TA_LEFT, fontSize=12, textColor=colors.HexColor("#0d47a1"))
-    normal_style = ParagraphStyle("NormalCustom", parent=styles["Normal"], fontSize=9, leading=13)
-
-    story = []
-    story.append(Paragraph("Professional Software Estimation Report", title_style))
-    story.append(Spacer(1, 12))
-
-    summary_data = [
-        ["Thời gian xuất", now_text()],
-        ["Project Name", project_meta.get("project_name", "")],
-        ["Owner", project_meta.get("project_owner", "")],
-        ["Status", project_meta.get("project_status", "")],
-        ["Domain", project_meta.get("project_domain", "")],
-        ["Mode", result["mode"]],
-        ["KLOC", f"{result['kloc']:.2f}"],
-        ["Effort", f"{result['effort']:.2f} PM"],
-        ["Time", f"{result['tdev']:.2f} months"],
-        ["Team Size", f"{result['staff']:.2f}"],
-        ["Cost", f"{result['cost']:,.0f} VND"],
-        ["Risk", result["risk_level"]],
-    ]
-    story.append(Paragraph("1. Executive Summary", heading_style))
-    table = Table(summary_data, colWidths=[130, 360])
-    table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e3f2fd")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
-    story.append(table)
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("2. Project Description", heading_style))
-    story.append(Paragraph(project_meta.get("description", "-"), normal_style))
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("3. Validation Warnings", heading_style))
-    if validation_messages:
-        for msg in validation_messages:
-            story.append(Paragraph(f"• {msg}", normal_style))
-    else:
-        story.append(Paragraph("Không có cảnh báo logic đáng chú ý.", normal_style))
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("4. Cost Drivers", heading_style))
-    driver_rows = [["Driver", "Rating", "Multiplier"]]
-    for driver, rating in selections.items():
-        driver_rows.append([driver, rating, str(COST_DRIVERS[driver]["values"][rating])])
-    driver_table = Table(driver_rows, colWidths=[80, 180, 100])
-    driver_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#bbdefb")),
-    ]))
-    story.append(driver_table)
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("5. Function Point Summary", heading_style))
-    fp_rows = [
-        ["Language", fp_snapshot["language"]],
-        ["LOC per FP", f"{fp_snapshot['loc_per_fp']:.2f}"],
-        ["UFP", f"{fp_snapshot['ufp']:.2f}"],
-        ["DI", f"{fp_snapshot['di']}"],
-        ["VAF", f"{fp_snapshot['vaf']:.2f}"],
-        ["FP", f"{fp_snapshot['fp']:.2f}"],
-        ["SLOC", f"{fp_snapshot['sloc']:,.0f}"],
-        ["KLOC", f"{fp_snapshot['kloc']:.2f}"],
-    ]
-    fp_table = Table(fp_rows, colWidths=[130, 180])
-    fp_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e8f5e9")),
-    ]))
-    story.append(fp_table)
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("6. AI Analysis", heading_style))
-    story.append(Paragraph((ai_text or "Chưa có AI analysis.").replace("\n", "<br/>"), normal_style))
-    story.append(Spacer(1, 10))
-
-    doc.build(story)
-    pdf = buffer.getvalue()
-    buffer.close()
-    return pdf
 
 
 def project_versions_df(project: dict):
@@ -1530,7 +1228,6 @@ def project_versions_df(project: dict):
         result = version.get("result", {})
         rows.append({
             "Version No": version.get("version_no", 0),
-            "Title": version.get("title", ""),
             "Baseline": "Yes" if version.get("is_baseline") else "No",
             "Mode": result.get("mode", ""),
             "KLOC": round(safe_float(result.get("kloc", 0)), 2),
@@ -1554,12 +1251,22 @@ def build_baseline_compare_df(current_result: dict, baseline_result: dict):
     ])
 
 
+def feature_review_notes():
+    notes = []
+    notes.append("Removed unnecessary fields: Project Status, Version Title, Version Note.")
+    notes.append("Validation tab removed. Warnings now appear directly near related inputs.")
+    notes.append("PDF report is generated in English to avoid Vietnamese font issues.")
+    notes.append("Help tab has been filled with formulas and workflow guidance.")
+    notes.append("Workspace is still available for save/load/export/import. Keep it only if your teacher wants versioning.")
+    return notes
+
+
 init_state()
 process_pending_actions()
 
 with st.sidebar:
     st.title("Professional Estimation Workspace")
-    st.markdown("Estimate project effort, schedule, team size, cost, risk, version history, baseline, JSON package, PDF report và AI phân tích tiếng Việt.")
+    st.markdown("Estimate project effort, schedule, team size, cost, risk, version history, baseline, JSON package, PDF report and AI analysis.")
 
     preset = st.selectbox(
         "Project Template",
@@ -1584,35 +1291,33 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Workspace")
     workspace_projects = st.session_state.workspace.get("projects", [])
-    project_options = ["-- Chưa chọn project --"] + [f"{p['project_name']} ({p['project_id']})" for p in workspace_projects]
-    selected_project_label = st.selectbox("Chọn project đã lưu", project_options)
+    project_options = ["-- No project selected --"] + [f"{p['project_name']} ({p['project_id']})" for p in workspace_projects]
+    selected_project_label = st.selectbox("Saved projects", project_options)
 
-    if selected_project_label != "-- Chưa chọn project --":
+    if selected_project_label != "-- No project selected --":
         selected_project_id = selected_project_label.split("(")[-1].replace(")", "").strip()
         project_obj = find_project_by_id(selected_project_id)
         if project_obj:
-            version_options = [f"v{v['version_no']} - {v['title']} ({v['version_id']})" for v in project_obj.get("versions", [])]
+            version_options = [f"v{v['version_no']} ({v['version_id']})" for v in project_obj.get("versions", [])]
             if version_options:
-                selected_version_label = st.selectbox("Chọn version", version_options)
+                selected_version_label = st.selectbox("Saved versions", version_options)
                 selected_version_id = selected_version_label.split("(")[-1].replace(")", "").strip()
-
                 if st.button("Load Version to Form", use_container_width=True):
                     ok = load_version_to_form(selected_project_id, selected_version_id)
                     if ok:
-                        st.success("Đã nạp version vào form.")
+                        st.success("Version loaded.")
                         st.rerun()
 
     st.markdown("---")
-    st.caption("Project package JSON giúp export/import nguyên trạng project + version + cost drivers + FP + AI.")
+    st.caption("Project package JSON stores full project + version + drivers + FP + AI.")
 
 st.title("Professional Software Effort Estimation Workspace")
-st.caption("Intermediate COCOMO + Function Point + AI Analysis + Versioning + JSON Package + PDF Report + Validation + Baseline Comparison")
+st.caption("Intermediate COCOMO + Function Point + AI Analysis + Versioning + JSON Package + PDF Report")
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Estimator",
     "FP Estimator",
     "AI Optimization",
-    "Validation",
     "Workspace",
     "Compare & What-if",
     "Help",
@@ -1624,28 +1329,25 @@ with tab1:
     with left:
         st.subheader("Project Information")
         st.text_input("Project Name", key="project_name")
-        meta_col1, meta_col2 = st.columns(2)
-        with meta_col1:
-            st.text_input("Project Owner", key="project_owner")
-            st.text_input("Project Domain", key="project_domain")
-        with meta_col2:
-            st.selectbox("Project Status", ["Draft", "Reviewed", "Approved", "Archived"], key="project_status")
-            st.text_input("Version Title", key="version_title")
+        if not st.session_state.project_name.strip():
+            st.warning("Please enter Project Name.")
         st.text_area("Project Description", height=140, key="description")
-        st.text_area("Version Note", height=90, key="version_note")
-
         st.selectbox("Development Mode", list(MODES.keys()), key="mode")
         st.selectbox("Size Input Unit", ["KLOC", "SLOC"], key="size_input_mode")
-
         if st.session_state.size_input_mode == "KLOC":
             st.number_input("Estimated Size (KLOC)", min_value=0.001, step=1.0, key="kloc")
         else:
             st.number_input("Estimated Size (SLOC)", min_value=1.0, step=100.0, key="sloc")
 
-        st.number_input("Cost per Person-Month (VND)", min_value=1000000.0, step=1000000.0, key="cost_per_pm")
+        if len((st.session_state.description or "").strip()) < 15:
+            st.warning("Project Description is too short.")
+        suggested_mode = suggest_mode_rule_based(st.session_state.description)
+        if st.session_state.description.strip() and suggested_mode != st.session_state.mode:
+            st.warning(f"Description currently suggests {suggested_mode} more than {st.session_state.mode}.")
 
-        if st.session_state.description.strip():
-            st.info(f"Mode gợi ý theo mô tả: **{suggest_mode_rule_based(st.session_state.description)}**")
+        effective_cost_input = st.number_input("Cost per Person-Month (VND)", min_value=1000000.0, step=1000000.0, key="cost_per_pm")
+        if effective_cost_input < 3000000:
+            st.warning("Cost per Person-Month looks quite low.")
 
     with right:
         st.subheader("Cost Drivers")
@@ -1654,12 +1356,7 @@ with tab1:
                 for driver in drivers:
                     meta = COST_DRIVERS[driver]
                     options = list(meta["values"].keys())
-                    st.selectbox(
-                        f"{driver} - {meta['label']}",
-                        options,
-                        key=driver,
-                        help=meta["help"],
-                    )
+                    st.selectbox(f"{driver} - {meta['label']}", options, key=driver, help=meta["help"])
 
     selections = get_driver_selections()
     effective_kloc = get_effective_kloc()
@@ -1672,7 +1369,7 @@ with tab1:
         selections=selections,
     )
     fp_snapshot = get_fp_snapshot()
-    validation_messages = validate_inputs(
+    inline_warnings = get_inline_warnings(
         st.session_state.project_name,
         st.session_state.description,
         st.session_state.mode,
@@ -1681,6 +1378,11 @@ with tab1:
         selections,
         fp_snapshot,
     )
+    all_warning_messages = flatten_warnings(inline_warnings)
+
+    if inline_warnings["drivers"]:
+        for msg in inline_warnings["drivers"]:
+            st.warning(msg)
 
     st.subheader("Estimation Results")
     m1, m2, m3, m4, m5 = st.columns(5)
@@ -1693,36 +1395,18 @@ with tab1:
     st.caption(f"Effective KLOC used for calculation: {effective_kloc:.3f}")
     st.caption(f"Full estimated cost: {result['cost']:,.0f} VND")
 
-    if validation_messages:
-        st.warning(f"Hệ thống phát hiện {len(validation_messages)} cảnh báo logic. Xem tab Validation để kiểm tra chi tiết.")
-    else:
-        st.success("Không phát hiện cảnh báo logic đáng chú ý.")
-
     driver_df = build_driver_df(selections)
     top5_df = get_top_impact_drivers(driver_df)
 
     top_col1, top_col2 = st.columns([1.2, 1])
-
     with top_col1:
-        fig1 = px.bar(
-            driver_df,
-            x="Driver",
-            y="Multiplier",
-            color="Group",
-            hover_data=["Name", "Rating"],
-            title="Cost Driver Multipliers",
-        )
+        fig1 = px.bar(driver_df, x="Driver", y="Multiplier", color="Group", hover_data=["Name", "Rating"], title="Cost Driver Multipliers")
         st.plotly_chart(fig1, use_container_width=True)
-
     with top_col2:
-        st.subheader("Top 5 Driver ảnh hưởng mạnh")
-        st.dataframe(
-            top5_df[["Driver", "Name", "Rating", "Multiplier", "Group"]],
-            use_container_width=True,
-        )
+        st.subheader("Top 5 Most Influential Drivers")
+        st.dataframe(top5_df[["Driver", "Name", "Rating", "Multiplier", "Group"]], use_container_width=True)
 
     chart_col1, chart_col2 = st.columns(2)
-
     with chart_col1:
         compare_rows = []
         for each_mode in MODES:
@@ -1734,12 +1418,7 @@ with tab1:
                 cost_per_pm=result["cost_per_pm"],
                 selections=selections,
             )
-            compare_rows.append({
-                "Mode": each_mode,
-                "Effort": mode_result["effort"],
-                "Development Time": mode_result["tdev"],
-                "Average Staff": mode_result["staff"],
-            })
+            compare_rows.append({"Mode": each_mode, "Effort": mode_result["effort"], "Development Time": mode_result["tdev"], "Average Staff": mode_result["staff"]})
         compare_df = pd.DataFrame(compare_rows)
         fig2 = px.bar(compare_df, x="Mode", y="Effort", color="Mode", title="Effort Comparison by Mode")
         st.plotly_chart(fig2, use_container_width=True)
@@ -1757,24 +1436,10 @@ with tab1:
     st.subheader("Driver Table")
     st.dataframe(driver_df[["Driver", "Name", "Group", "Rating", "Multiplier"]], use_container_width=True)
 
-    report_text = export_text_report(result, selections, st.session_state.ai_result, fp_snapshot, validation_messages)
-    pdf_bytes = make_pdf_report_bytes(
-        {
-            "project_name": st.session_state.project_name,
-            "project_owner": st.session_state.project_owner,
-            "project_status": st.session_state.project_status,
-            "project_domain": st.session_state.project_domain,
-            "description": st.session_state.description,
-        },
-        result,
-        selections,
-        fp_snapshot,
-        validation_messages,
-        st.session_state.ai_result,
-    )
+    report_text = export_text_report(result, selections, st.session_state.ai_result, fp_snapshot, all_warning_messages)
+    pdf_bytes = make_pdf_report_bytes(st.session_state.project_name, result, selections, fp_snapshot, all_warning_messages, st.session_state.ai_result)
 
     actions1, actions2, actions3, actions4 = st.columns(4)
-
     with actions1:
         if st.button("Generate AI Analysis", use_container_width=True):
             if enable_ai:
@@ -1803,7 +1468,7 @@ with tab1:
                         result["cost"],
                         selections,
                     )
-                    st.warning("AI tạm thời không khả dụng. Hệ thống đang hiển thị phân tích fallback.")
+                    st.warning("AI is temporarily unavailable. Fallback analysis is shown.")
             else:
                 st.session_state.ai_result = fallback_ai_summary(
                     st.session_state.description,
@@ -1820,18 +1485,16 @@ with tab1:
 
     with actions2:
         if st.button("Save as New Version", use_container_width=True):
-            payload = build_current_version_payload(result, selections, fp_snapshot, validation_messages)
+            payload = build_current_version_payload(result, selections, fp_snapshot, all_warning_messages)
             if not st.session_state.active_project_id:
                 create_new_project_with_version(payload)
-                st.success("Đã tạo project mới và lưu version đầu tiên.")
+                st.success("New project and first version created.")
             else:
                 save_current_as_new_version(payload)
-                st.success("Đã lưu version mới cho project hiện tại.")
+                st.success("New version saved.")
             save_history_row({
                 "timestamp": now_text(),
                 "project_name": result["project_name"],
-                "project_owner": st.session_state.project_owner,
-                "project_status": st.session_state.project_status,
                 "mode": result["mode"],
                 "kloc": result["kloc"],
                 "eaf": result["eaf"],
@@ -1840,7 +1503,6 @@ with tab1:
                 "team_size": result["staff"],
                 "estimated_cost_vnd": result["cost"],
                 "risk_level": result["risk_level"],
-                "version_title": st.session_state.version_title,
             })
             refresh_workspace()
             st.rerun()
@@ -1864,17 +1526,19 @@ with tab1:
                 use_container_width=True,
             )
         else:
-            st.info("Muốn xuất PDF cần cài thêm reportlab: pip install reportlab")
+            st.info("PDF export requires reportlab in requirements.txt")
 
     st.subheader("AI Project Analysis")
     if st.session_state.ai_result:
         st.markdown(st.session_state.ai_result)
     else:
-        st.caption("Chưa có AI analysis. Bấm Generate AI Analysis để tạo.")
+        st.caption("No AI analysis yet. Click Generate AI Analysis.")
+
+
 
 with tab2:
     st.subheader("Function Point Estimator")
-    st.caption("Nhập 5 nhóm FP, tính UFP / VAF / FP, chuyển sang SLOC/KLOC, phân tích AI bằng tiếng Việt và có thể đẩy sang COCOMO.")
+    st.caption("Enter 5 FP groups, calculate UFP / VAF / FP, convert to SLOC/KLOC, analyze with AI, and optionally send FP size to COCOMO.")
 
     st.selectbox("Programming Language", list(LANGUAGE_LOC_PER_FP.keys()) + ["Custom"], key="fp_language")
     if st.session_state.fp_language == "Custom":
@@ -1882,7 +1546,6 @@ with tab2:
     loc_per_fp = get_fp_loc_per_fp()
 
     fp_left, fp_right = st.columns([1, 1])
-
     with fp_left:
         st.markdown("### FP Counts")
         for component, label in FP_COMPONENT_LABELS.items():
@@ -1901,6 +1564,11 @@ with tab2:
             st.slider(name, min_value=0, max_value=5, key=f"fp_gsc_{idx}")
 
     fp_snapshot = get_fp_snapshot()
+    if effective_kloc > 0:
+        diff_pct = abs(fp_snapshot["kloc"] - effective_kloc) / effective_kloc
+        if diff_pct >= 0.5:
+            st.warning(f"FP KLOC ({fp_snapshot['kloc']:.2f}) differs a lot from manual KLOC ({effective_kloc:.2f}).")
+
     fp_based_result = compute_result(
         project_name=f"{st.session_state.project_name or 'FP Project'} (FP-based)",
         description=st.session_state.description or "Function Point derived estimation",
@@ -1921,20 +1589,20 @@ with tab2:
     st.caption(f"Estimated SLOC from FP: {fp_snapshot['sloc']:,.0f}")
     st.caption(f"LOC per FP factor used: {loc_per_fp:.2f}")
 
+    with st.expander("How Function Point is calculated", expanded=False):
+        st.markdown("""
+- **UFP** = sum of weighted functions  
+- **VAF** = 0.65 + 0.01 × DI  
+- **FP** = UFP × VAF  
+- **SLOC** = FP × LOC/FP  
+- **KLOC** = SLOC / 1000
+""")
+
     fp_mode_col1, fp_mode_col2 = st.columns(2)
     with fp_mode_col1:
         st.selectbox("Mode for FP-based COCOMO", list(MODES.keys()), key="fp_mode")
     with fp_mode_col2:
         st.number_input("FP-based Cost per Person-Month (VND)", min_value=1000000.0, step=1000000.0, key="fp_cost_per_pm")
-
-    fp_based_result = compute_result(
-        project_name=f"{st.session_state.project_name or 'FP Project'} (FP-based)",
-        description=st.session_state.description or "Function Point derived estimation",
-        mode=st.session_state.fp_mode,
-        kloc=max(fp_snapshot["kloc"], 0.001),
-        cost_per_pm=st.session_state.fp_cost_per_pm,
-        selections=get_driver_selections(),
-    )
 
     st.markdown("### FP-based COCOMO Projection")
     k1, k2, k3, k4, k5 = st.columns(5)
@@ -1953,7 +1621,7 @@ with tab2:
                     st.session_state.ai_fp_result = ai_fp_text
                 else:
                     st.session_state.ai_fp_result = fallback_fp_ai_summary(fp_snapshot, fp_based_result)
-                    st.warning("AI FP tạm thời không khả dụng. Hệ thống đang hiển thị fallback.")
+                    st.warning("AI FP is temporarily unavailable. Fallback analysis is shown.")
             else:
                 st.session_state.ai_fp_result = fallback_fp_ai_summary(fp_snapshot, fp_based_result)
             st.rerun()
@@ -1968,11 +1636,11 @@ with tab2:
     if st.session_state.ai_fp_result:
         st.markdown(st.session_state.ai_fp_result)
     else:
-        st.caption("Chưa có FP AI analysis. Bấm Generate FP AI Analysis để tạo.")
+        st.caption("No FP AI analysis yet. Click Generate FP AI Analysis.")
 
 with tab3:
     st.subheader("AI Optimization")
-    st.caption("AI đọc current project, đề xuất thay đổi có cấu trúc, cho phép so sánh Current vs Suggested và Apply.")
+    st.caption("AI reads the current project, proposes structured changes, compares current vs suggested, and lets you apply them.")
 
     current_selections = get_driver_selections()
     current_result = compute_result(
@@ -2004,25 +1672,21 @@ with tab3:
             )
             st.session_state.ai_suggestion = suggestion
             if error_msg:
-                st.warning("AI optimization tạm thời không khả dụng. Hệ thống hiển thị fallback suggestion.")
+                st.warning("AI optimization is temporarily unavailable. Fallback suggestion is shown.")
             else:
-                st.success("Đã tạo AI optimization.")
+                st.success("AI optimization generated.")
             st.rerun()
 
     suggestion = st.session_state.get("ai_suggestion")
-
     if suggestion:
         suggested_selections, suggested_result = apply_suggestion_to_result(current_result, current_selections, suggestion)
 
         st.markdown("### Suggested Changes")
         st.write(f"**Suggested Mode:** {suggestion.get('suggested_mode', current_result['mode'])}")
-
         if suggestion.get("goals"):
             st.write("**Goals:** " + ", ".join(suggestion["goals"]))
-
         if suggestion.get("expected_effect"):
             st.write(f"**Expected Effect:** {suggestion['expected_effect']}")
-
         if suggestion.get("reasoning"):
             st.write("**Reasoning:**")
             for item in suggestion["reasoning"]:
@@ -2033,7 +1697,7 @@ with tab3:
             st.markdown("### Driver Changes")
             st.dataframe(driver_change_df, use_container_width=True)
         else:
-            st.info("Không có driver change. Có thể chỉ đổi mode.")
+            st.info("No cost driver changes. Only mode may have changed.")
 
         st.markdown("### Current vs Suggested")
         compare_df = build_metric_compare_df(current_result, suggested_result)
@@ -2059,47 +1723,16 @@ with tab3:
             st.session_state.pending_ai_apply = True
             st.rerun()
     else:
-        st.info("Chưa có AI optimization. Bấm Generate AI Optimization để tạo.")
+        st.info("No AI optimization yet. Click Generate AI Optimization.")
 
 with tab4:
-    st.subheader("Validation & Logic Warnings")
-    current_selections = get_driver_selections()
-    current_result = compute_result(
-        project_name=st.session_state.project_name,
-        description=st.session_state.description,
-        mode=st.session_state.mode,
-        kloc=get_effective_kloc(),
-        cost_per_pm=st.session_state.cost_per_pm,
-        selections=current_selections,
-    )
-    fp_snapshot = get_fp_snapshot()
-    validation_messages = validate_inputs(
-        st.session_state.project_name,
-        st.session_state.description,
-        st.session_state.mode,
-        current_result["kloc"],
-        st.session_state.cost_per_pm,
-        current_selections,
-        fp_snapshot,
-    )
-
-    st.dataframe(build_validation_df(validation_messages), use_container_width=True)
-
-    if validation_messages:
-        for msg in validation_messages:
-            st.warning(msg)
-    else:
-        st.success("Không có cảnh báo logic đáng chú ý.")
-
-with tab5:
-    st.subheader("Workspace, Versioning, JSON Package, Baseline")
+    st.subheader("Workspace")
     refresh_workspace()
 
     ws_col1, ws_col2 = st.columns([1, 1.2])
-
     with ws_col1:
         st.markdown("### Import Project Package JSON")
-        uploaded_json = st.file_uploader("Chọn file JSON package", type=["json"])
+        uploaded_json = st.file_uploader("Choose JSON package", type=["json"])
         if uploaded_json is not None:
             if st.button("Import JSON Package", use_container_width=True):
                 ok, msg = import_project_package(uploaded_json)
@@ -2118,42 +1751,36 @@ with tab5:
         s2.metric("Versions", total_versions)
         s3.metric("Current Active Project", st.session_state.active_project_id or "-")
 
+
     if not st.session_state.workspace.get("projects"):
-        st.info("Chưa có project nào trong workspace.")
+        st.info("No project in workspace yet.")
     else:
         for project in st.session_state.workspace.get("projects", []):
             with st.expander(f"{project['project_name']} - {project['project_id']}", expanded=False):
-                st.write(f"**Owner:** {project['project_owner']}")
-                st.write(f"**Status:** {project['project_status']}")
-                st.write(f"**Domain:** {project['project_domain']}")
                 st.write(f"**Description:** {project['description']}")
                 st.write(f"**Created:** {project['created_at']}")
                 st.write(f"**Updated:** {project['updated_at']}")
-
                 versions_df = project_versions_df(project)
                 st.dataframe(versions_df, use_container_width=True)
 
                 version_ids = [v["version_id"] for v in project.get("versions", [])]
                 selected_ver_for_action = st.selectbox(
-                    f"Chọn version thao tác - {project['project_id']}",
+                    f"Choose version - {project['project_id']}",
                     version_ids,
                     key=f"action_version_{project['project_id']}"
                 )
 
                 act1, act2, act3 = st.columns(3)
-
                 with act1:
                     if st.button(f"Set Baseline - {project['project_id']}", use_container_width=True):
                         if set_baseline(project["project_id"], selected_ver_for_action):
-                            st.success("Đã đặt baseline.")
+                            st.success("Baseline updated.")
                             st.rerun()
-
                 with act2:
                     if st.button(f"Load Form - {project['project_id']}", use_container_width=True):
                         load_version_to_form(project["project_id"], selected_ver_for_action)
-                        st.success("Đã nạp version lên form.")
+                        st.success("Version loaded to form.")
                         st.rerun()
-
                 with act3:
                     package = build_project_package(project["project_id"], selected_ver_for_action)
                     if package:
@@ -2193,22 +1820,15 @@ with tab5:
                         {"Scenario": "Baseline", "Metric": "Cost", "Value": baseline_result["cost"]},
                         {"Scenario": "Current", "Metric": "Cost", "Value": current_result["cost"]},
                     ])
-                    fig_baseline = px.bar(
-                        baseline_chart_df,
-                        x="Metric",
-                        y="Value",
-                        color="Scenario",
-                        barmode="group",
-                        title="Baseline vs Current"
-                    )
+                    fig_baseline = px.bar(baseline_chart_df, x="Metric", y="Value", color="Scenario", barmode="group", title="Baseline vs Current")
                     st.plotly_chart(fig_baseline, use_container_width=True)
                 else:
-                    st.info("Project hiện tại chưa có baseline.")
+                    st.info("Current project has no baseline yet.")
 
     st.subheader("History CSV")
     history_df = load_history_df()
     if history_df.empty:
-        st.info("Chưa có history CSV.")
+        st.info("No history saved yet.")
     else:
         st.dataframe(history_df, use_container_width=True)
         st.download_button(
@@ -2218,7 +1838,7 @@ with tab5:
             mime="text/csv",
         )
 
-with tab6:
+with tab5:
     st.subheader("Compare Modes & What-if")
     selections = get_driver_selections()
     effective_kloc = get_effective_kloc()
@@ -2292,3 +1912,48 @@ with tab6:
         title="What-if Comparison",
     )
     st.plotly_chart(fig_what_if, use_container_width=True)
+
+with tab6:
+    st.subheader("Help")
+    st.markdown("""
+### 1. Intermediate COCOMO
+- **Effort** = a × (KLOC ^ b) × EAF  
+- **Time** = c × (Effort ^ d)  
+- **Team Size** = Effort / Time  
+
+### 2. Function Point
+- **UFP** = sum of weighted functions  
+- **VAF** = 0.65 + 0.01 × DI  
+- **FP** = UFP × VAF  
+- **SLOC** = FP × LOC/FP  
+- **KLOC** = SLOC / 1000  
+
+### 3. Recommended Workflow
+1. Enter project description and KLOC or use FP  
+2. Select development mode and 15 cost drivers  
+3. Review effort, time, cost, and risk  
+4. Generate AI Project Analysis  
+5. Generate AI Optimization if needed  
+6. Save version or export JSON / PDF report  
+
+### 4. Inline Warnings
+Warnings are now shown directly near the related input or section:
+- Project Name
+- Description
+- Mode
+- KLOC / SLOC
+- Cost per PM
+- Cost drivers
+- FP KLOC mismatch
+
+### 5. Notes
+- If PDF export is not available on Streamlit Cloud, add `reportlab` to `requirements.txt`
+- PDF report is generated in English to avoid Vietnamese font issues
+""")
+
+    st.subheader("Feature Review")
+    for note in feature_review_notes():
+        st.write(f"- {note}")
+
+st.markdown("---")
+st.caption("Final version: removed unnecessary fields, inline warnings, English PDF report with charts, richer AI analysis, and fixed Help content.")
