@@ -1,5 +1,6 @@
 streamlit
 pandas
 plotly
-openai
 python-dotenv
+reportlab
+openai
