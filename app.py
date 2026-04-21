@@ -1137,12 +1137,11 @@ with st.sidebar:
         package = build_current_package(current_result, current_sel, fp_snapshot_export, validation_export)
         st.download_button("Export JSON Package", data=json.dumps(package, ensure_ascii=False, indent=2).encode("utf-8"), file_name=f"{(st.session_state.project_name or 'project').replace(' ', '_').lower()}_package.json", mime="application/json", use_container_width=True)
     else:
-        st.info("Nhập Project Name để bật export JSON.")
+        st.info("Nhập Project Name để bật export JSON (Lưu dự án).")
     if st.session_state.loaded_project_name:
         st.success(f"Đang làm tiếp từ file JSON: {st.session_state.loaded_project_name}")
 
 st.title("Professional Software Effort Estimation Workspace")
-st.caption("Intermediate COCOMO + Function Point + AI Analysis + JSON Package + PDF Report")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Estimator", "FP Estimator", "AI Optimization", "Workspace", "Help"])
 
@@ -1241,7 +1240,6 @@ with tab1:
 
 with tab2:
     st.subheader("Function Point Estimator")
-    st.caption("Nhập từng EI, EO, EQ, ILF, EIF theo DET và FTR/RET. Hệ thống tự xác định complexity và tính UFP/VAF/FP.")
     st.selectbox("Programming Language", list(LANGUAGE_LOC_PER_FP.keys()) + ["Custom"], key="fp_language")
     if st.session_state.fp_language == "Custom":
         st.number_input("Custom LOC per FP", min_value=1.0, step=1.0, key="fp_custom_loc_per_fp")
@@ -1372,7 +1370,7 @@ with tab3:
 
 with tab4:
     st.subheader("Workspace")
-    st.caption("Không lưu nội bộ nhiều project. Chỉ import lại JSON package để tiếp tục làm việc.")
+    st.caption("Import lại JSON package để tiếp tục làm việc.")
     uploaded_json = st.file_uploader("Upload JSON Package", type=["json"])
     if uploaded_json is not None and st.button("Load JSON Package", use_container_width=True):
         ok, msg = import_project_package(uploaded_json)
