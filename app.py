@@ -39,6 +39,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown("""
+<style>
+section[data-testid="stSidebar"] div.stButton > button {
+    height: 42px !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 APP_SCHEMA_VERSION = "3.0.0"
 AI_MODEL_NAME = "gpt-4.1-mini"
 
@@ -254,6 +264,57 @@ def safe_int(value, default=0):
         return default
 
 
+
+def set_form_from_package_data(data: dict):
+    version = data.get("version", {})
+    project = data.get("project", {})
+
+    updates = {}
+    updates["project_name"] = project.get("project_name", "")
+    updates["description"] = project.get("description", "")
+
+    inp = version.get("input", {})
+    updates["mode"] = inp.get("mode", "Organic")
+    updates["size_input_mode"] = inp.get("size_input_mode", "KLOC")
+    updates["kloc"] = safe_float(inp.get("kloc", 1.0), 1.0)
+    updates["sloc"] = safe_float(inp.get("sloc", updates["kloc"] * 1000.0), updates["kloc"] * 1000.0)
+    updates["cost_per_pm"] = safe_float(inp.get("cost_per_pm", 12000000.0), 12000000.0)
+
+    drivers = version.get("cost_drivers", {})
+    for driver in COST_DRIVERS:
+        if driver in drivers and drivers[driver] in COST_DRIVERS[driver]["values"]:
+            updates[driver] = drivers[driver]
+
+    updates["ai_result"] = version.get("ai", {}).get("analysis", "")
+    updates["ai_suggestion"] = version.get("ai", {}).get("suggestion", None)
+
+    fp_data = version.get("fp", {})
+    updates["fp_language"] = fp_data.get("language", "Java")
+    updates["fp_custom_loc_per_fp"] = safe_float(fp_data.get("loc_per_fp", 60.0), 60.0)
+    updates["fp_mode"] = fp_data.get("fp_mode", "Organic")
+    updates["fp_cost_per_pm"] = safe_float(fp_data.get("fp_cost_per_pm", 12000000.0), 12000000.0)
+    updates["ai_fp_result"] = fp_data.get("ai_fp_result", "")
+
+    summary = fp_data.get("summary", {})
+    for comp in FP_COMPONENT_LABELS:
+        details = summary.get(comp, {}).get("details", [])
+        items = []
+        row_label = FP_MATRIX[comp]["row_label"]
+        for d in details:
+            items.append({
+                "name": d.get("Name", ""),
+                "det": safe_int(d.get("DET", 1), 1),
+                "ftr_ret": safe_int(d.get(row_label, 1), 1),
+            })
+        updates[f"fp_items_{comp}"] = items or [{"name": "", "det": 1, "ftr_ret": 1}]
+
+    gsc = fp_data.get("gsc", {})
+    for idx, name in enumerate(GSC_NAMES):
+        updates[f"fp_gsc_{idx}"] = safe_int(gsc.get(name, 0), 0)
+
+    for key, value in updates.items():
+        st.session_state[key] = value
+
 def init_state():
     defaults = {
         "selected_preset": "Start from Scratch",
@@ -277,6 +338,7 @@ def init_state():
         "loaded_package": None,
         "loaded_project_name": "",
         "pending_import_package": None,
+        "pending_apply_import": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -337,7 +399,7 @@ def apply_preset(name: str):
 
 
 
-def load_package_to_form(data: dict):
+def _old_load_package_to_form_unused(data: dict):
     version = data.get("version", {})
     project = data.get("project", {})
 
@@ -723,8 +785,15 @@ def call_ai_analysis(description, mode, kloc, eaf, effort, tdev, staff, cost, se
         client = OpenAI(api_key=api_key)
         driver_text = "\n".join([f"{k}: {v} (x{COST_DRIVERS[k]['values'][v]})" for k, v in selections.items()])
         prompt = f"""
-Bạn là trợ lý phân tích estimate dự án phần mềm.
-Hãy trả lời bằng tiếng Việt, chi tiết vừa phải, dễ hiểu, hướng báo cáo sinh viên.
+Bạn là chuyên gia ước lượng dự án phần mềm.
+
+Yêu cầu bắt buộc:
+- Viết bằng tiếng Việt
+- Viết theo phong cách báo cáo kỹ thuật, chuyên nghiệp
+- Không dùng đại từ "tôi"
+- Không nói chuyện với người đọc
+- Không dùng câu kiểu trợ lý như "Nếu cần, tôi có thể..."
+- Trình bày rõ ràng, dễ hiểu, phù hợp báo cáo sinh viên
 
 Project description:
 {description}
@@ -753,6 +822,8 @@ Viết theo đúng 6 mục:
 """
         response = client.responses.create(model=AI_MODEL_NAME, input=prompt)
         text = response.output_text.strip()
+        text = re.sub(r"(?im)^.*nếu cần.*$", "", text).strip()
+        text = re.sub(r"(?im)^.*if needed.*$", "", text).strip()
         return (text or None), None if text else "AI unavailable"
     except Exception:
         return None, "AI unavailable"
@@ -791,6 +862,8 @@ Viết bằng tiếng Việt theo 4 mục:
 """
         response = client.responses.create(model=AI_MODEL_NAME, input=prompt)
         text = response.output_text.strip()
+        text = re.sub(r"(?im)^.*nếu cần.*$", "", text).strip()
+        text = re.sub(r"(?im)^.*if needed.*$", "", text).strip()
         return (text or None), None if text else "AI unavailable"
     except Exception:
         return None, "AI unavailable"
@@ -1003,6 +1076,7 @@ def import_project_package(uploaded_file):
         return False, "JSON thiếu project hoặc version."
 
     st.session_state.pending_import_package = data
+    st.session_state.pending_apply_import = True
     return True, f"Đã nhận file project: {data.get('project', {}).get('project_name', 'Imported Project')}"
 
 def fig_to_png_bytes(fig, width=1200, height=700, scale=2):
@@ -1110,24 +1184,28 @@ def build_help_markdown():
 
 
 init_state()
-apply_pending_import()
+if st.session_state.get("pending_apply_import") and st.session_state.get("pending_import_package"):
+    set_form_from_package_data(st.session_state.pending_import_package)
+    st.session_state.loaded_package = st.session_state.pending_import_package
+    st.session_state.loaded_project_name = st.session_state.pending_import_package.get("project", {}).get("project_name", "")
+    st.session_state.pending_import_package = None
+    st.session_state.pending_apply_import = False
 process_pending_actions()
 
 with st.sidebar:
     st.title("Professional Estimation Workspace")
     st.markdown("Estimate project effort, schedule, team size, cost, risk and export/import a full JSON package.")
     preset = st.selectbox("Project Template", list(PRESET_PROJECTS.keys()), index=list(PRESET_PROJECTS.keys()).index(st.session_state.selected_preset) if st.session_state.selected_preset in PRESET_PROJECTS else 0)
-    st.markdown("### Actions")
-
-    if st.button("Apply Template", use_container_width=True, type="primary"):
-        apply_preset(preset)
-        st.rerun()
-
-    st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-
-    if st.button("Reset Form", use_container_width=True):
-        reset_form()
-    st.rerun()
+    st.markdown("#### Actions")
+    c1, c2 = st.columns(2, gap="small")
+    with c1:
+        if st.button("Apply Template", key="apply_template_btn"):
+            apply_preset(preset)
+            st.rerun()
+    with c2:
+        if st.button("Reset Form", key="reset_form_btn"):
+            reset_form()
+            st.rerun()
     enable_ai = st.checkbox("Enable AI", value=True)
     st.markdown("---")
     st.subheader("JSON Package")
@@ -1139,11 +1217,12 @@ with st.sidebar:
         package = build_current_package(current_result, current_sel, fp_snapshot_export, validation_export)
         st.download_button("Export JSON Package", data=json.dumps(package, ensure_ascii=False, indent=2).encode("utf-8"), file_name=f"{(st.session_state.project_name or 'project').replace(' ', '_').lower()}_package.json", mime="application/json", use_container_width=True)
     else:
-        st.info("Nhập Project Name để bật export JSON (Lưu dự án).")
+        st.info("Nhập Project Name để bật export JSON.")
     if st.session_state.loaded_project_name:
         st.success(f"Đang làm tiếp từ file JSON: {st.session_state.loaded_project_name}")
 
 st.title("Professional Software Effort Estimation Workspace")
+st.caption("Intermediate COCOMO + Function Point + AI Analysis + JSON Package + PDF Report")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Estimator", "FP Estimator", "AI Optimization", "Workspace", "Help"])
 
@@ -1238,10 +1317,11 @@ with tab1:
     if st.session_state.ai_result:
         st.markdown(st.session_state.ai_result)
     else:
-        st.caption("Bấm Generate AI Analysis để tiến hành phân tích.")
+        st.caption("Chưa có AI analysis. Bấm Generate AI Analysis để tạo.")
 
 with tab2:
     st.subheader("Function Point Estimator")
+    st.caption("Nhập từng EI, EO, EQ, ILF, EIF theo DET và FTR/RET. Hệ thống tự xác định complexity và tính UFP/VAF/FP.")
     st.selectbox("Programming Language", list(LANGUAGE_LOC_PER_FP.keys()) + ["Custom"], key="fp_language")
     if st.session_state.fp_language == "Custom":
         st.number_input("Custom LOC per FP", min_value=1.0, step=1.0, key="fp_custom_loc_per_fp")
@@ -1317,7 +1397,7 @@ with tab2:
     if st.session_state.ai_fp_result:
         st.markdown(st.session_state.ai_fp_result)
     else:
-        st.caption("Bấm Generate FP AI Analysis để tiến hành phân tích.")
+        st.caption("Chưa có FP AI analysis. Bấm Generate FP AI Analysis để tạo.")
 
 with tab3:
     st.subheader("AI Optimization")
@@ -1372,15 +1452,16 @@ with tab3:
 
 with tab4:
     st.subheader("Workspace")
-    st.caption("Import lại JSON package để tiếp tục làm việc.")
+    st.caption("Không lưu nội bộ nhiều project. Chỉ import lại JSON package để tiếp tục làm việc.")
     uploaded_json = st.file_uploader("Upload JSON Package", type=["json"])
-    if uploaded_json is not None and st.button("Load JSON Package", use_container_width=True):
-        ok, msg = import_project_package(uploaded_json)
-        if ok:
-            st.success(msg)
-        else:
-            st.error(msg)
-        st.rerun()
+    if uploaded_json is not None:
+        if st.button("Load JSON Package", use_container_width=True):
+            ok, msg = import_project_package(uploaded_json)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
     if st.session_state.loaded_project_name:
         st.success(f"Current loaded package: {st.session_state.loaded_project_name}")
 
