@@ -276,6 +276,7 @@ def init_state():
         "fp_cost_per_pm": 12000000.0,
         "loaded_package": None,
         "loaded_project_name": "",
+        "pending_import_package": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1000,9 +1001,9 @@ def import_project_package(uploaded_file):
         return False, "File JSON không hợp lệ."
     if not isinstance(data, dict) or "project" not in data or "version" not in data:
         return False, "JSON thiếu project hoặc version."
-    load_package_to_form(data)
-    return True, f"Đã nạp lại project: {data.get('project', {}).get('project_name', 'Imported Project')}"
 
+    st.session_state.pending_import_package = data
+    return True, f"Đã nhận file project: {data.get('project', {}).get('project_name', 'Imported Project')}"
 
 def fig_to_png_bytes(fig, width=1200, height=700, scale=2):
     if pio is None:
@@ -1116,7 +1117,7 @@ with st.sidebar:
     st.title("Professional Estimation Workspace")
     st.markdown("Estimate project effort, schedule, team size, cost, risk and export/import a full JSON package.")
     preset = st.selectbox("Project Template", list(PRESET_PROJECTS.keys()), index=list(PRESET_PROJECTS.keys()).index(st.session_state.selected_preset) if st.session_state.selected_preset in PRESET_PROJECTS else 0)
-    c1, c2 = st.columns(2)
+    c1, c2 = st.columns([1, 1], gap="small")
     with c1:
         if st.button("Apply Template", use_container_width=True, type="primary"):
             apply_preset(preset)
@@ -1322,7 +1323,7 @@ with tab3:
     st.subheader("AI Optimization")
     current_selections = get_driver_selections()
     current_result = compute_result(st.session_state.project_name, st.session_state.description, st.session_state.mode, get_effective_kloc(), st.session_state.cost_per_pm, current_selections)
-    c1, c2 = st.columns(2)
+    c1, c2 = st.columns([1, 1], gap="small")
     with c1:
         st.markdown("### Current Baseline")
         st.write(f"**Project:** {current_result['project_name'] or 'Untitled Project'}")
