@@ -335,6 +335,62 @@ def apply_preset(name: str):
         st.session_state[driver] = rating
 
 
+
+def load_package_to_form(data: dict):
+    version = data.get("version", {})
+    project = data.get("project", {})
+
+    st.session_state.project_name = project.get("project_name", "")
+    st.session_state.description = project.get("description", "")
+
+    inp = version.get("input", {})
+    st.session_state.mode = inp.get("mode", "Organic")
+    st.session_state.size_input_mode = inp.get("size_input_mode", "KLOC")
+    st.session_state.kloc = safe_float(inp.get("kloc", 1.0), 1.0)
+    st.session_state.sloc = safe_float(inp.get("sloc", st.session_state.kloc * 1000.0), st.session_state.kloc * 1000.0)
+    st.session_state.cost_per_pm = safe_float(inp.get("cost_per_pm", 12000000.0), 12000000.0)
+
+    drivers = version.get("cost_drivers", {})
+    for driver in COST_DRIVERS:
+        if driver in drivers and drivers[driver] in COST_DRIVERS[driver]["values"]:
+            st.session_state[driver] = drivers[driver]
+
+    st.session_state.ai_result = version.get("ai", {}).get("analysis", "")
+    st.session_state.ai_suggestion = version.get("ai", {}).get("suggestion", None)
+
+    fp_data = version.get("fp", {})
+    st.session_state.fp_language = fp_data.get("language", "Java")
+    st.session_state.fp_custom_loc_per_fp = safe_float(fp_data.get("loc_per_fp", 60.0), 60.0)
+    st.session_state.fp_mode = fp_data.get("fp_mode", "Organic")
+    st.session_state.fp_cost_per_pm = safe_float(fp_data.get("fp_cost_per_pm", 12000000.0), 12000000.0)
+    st.session_state.ai_fp_result = fp_data.get("ai_fp_result", "")
+
+    summary = fp_data.get("summary", {})
+    if summary:
+        for comp in FP_COMPONENT_LABELS:
+            details = summary.get(comp, {}).get("details", [])
+            items = []
+            row_label = FP_MATRIX[comp]["row_label"]
+            for d in details:
+                items.append({
+                    "name": d.get("Name", ""),
+                    "det": safe_int(d.get("DET", 1), 1),
+                    "ftr_ret": safe_int(d.get(row_label, 1), 1),
+                })
+            st.session_state[f"fp_items_{comp}"] = items or [{"name": "", "det": 1, "ftr_ret": 1}]
+
+    gsc = fp_data.get("gsc", {})
+    for idx, name in enumerate(GSC_NAMES):
+        st.session_state[f"fp_gsc_{idx}"] = safe_int(gsc.get(name, 0), 0)
+
+
+def apply_pending_import():
+    data = st.session_state.get("pending_import_package")
+    if not data:
+        return
+    load_package_to_form(data)
+    st.session_state.pending_import_package = None
+
 def process_pending_actions():
     if st.session_state.get("pending_fp_transfer"):
         kloc_value = max(float(st.session_state.get("fp_transfer_kloc", 1.0)), 0.001)
@@ -1053,6 +1109,7 @@ def build_help_markdown():
 
 
 init_state()
+apply_pending_import()
 process_pending_actions()
 
 with st.sidebar:
