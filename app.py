@@ -1,3 +1,4 @@
+
 import os
 import io
 import json
@@ -49,7 +50,7 @@ section[data-testid="stSidebar"] div.stButton > button {
 </style>
 """, unsafe_allow_html=True)
 
-APP_SCHEMA_VERSION = "3.0.0"
+APP_SCHEMA_VERSION = "3.1.0"
 AI_MODEL_NAME = "gpt-4.1-mini"
 
 MODES = {
@@ -264,12 +265,13 @@ def safe_int(value, default=0):
         return default
 
 
-
 def set_form_from_package_data(data: dict):
     version = data.get("version", {})
     project = data.get("project", {})
 
     updates = {}
+    updates["loaded_package"] = data
+    updates["loaded_project_name"] = project.get("project_name", "")
     updates["project_name"] = project.get("project_name", "")
     updates["description"] = project.get("description", "")
 
@@ -314,6 +316,7 @@ def set_form_from_package_data(data: dict):
 
     for key, value in updates.items():
         st.session_state[key] = value
+
 
 def init_state():
     defaults = {
@@ -398,62 +401,6 @@ def apply_preset(name: str):
         st.session_state[driver] = rating
 
 
-
-def _old_load_package_to_form_unused(data: dict):
-    version = data.get("version", {})
-    project = data.get("project", {})
-
-    st.session_state.project_name = project.get("project_name", "")
-    st.session_state.description = project.get("description", "")
-
-    inp = version.get("input", {})
-    st.session_state.mode = inp.get("mode", "Organic")
-    st.session_state.size_input_mode = inp.get("size_input_mode", "KLOC")
-    st.session_state.kloc = safe_float(inp.get("kloc", 1.0), 1.0)
-    st.session_state.sloc = safe_float(inp.get("sloc", st.session_state.kloc * 1000.0), st.session_state.kloc * 1000.0)
-    st.session_state.cost_per_pm = safe_float(inp.get("cost_per_pm", 12000000.0), 12000000.0)
-
-    drivers = version.get("cost_drivers", {})
-    for driver in COST_DRIVERS:
-        if driver in drivers and drivers[driver] in COST_DRIVERS[driver]["values"]:
-            st.session_state[driver] = drivers[driver]
-
-    st.session_state.ai_result = version.get("ai", {}).get("analysis", "")
-    st.session_state.ai_suggestion = version.get("ai", {}).get("suggestion", None)
-
-    fp_data = version.get("fp", {})
-    st.session_state.fp_language = fp_data.get("language", "Java")
-    st.session_state.fp_custom_loc_per_fp = safe_float(fp_data.get("loc_per_fp", 60.0), 60.0)
-    st.session_state.fp_mode = fp_data.get("fp_mode", "Organic")
-    st.session_state.fp_cost_per_pm = safe_float(fp_data.get("fp_cost_per_pm", 12000000.0), 12000000.0)
-    st.session_state.ai_fp_result = fp_data.get("ai_fp_result", "")
-
-    summary = fp_data.get("summary", {})
-    if summary:
-        for comp in FP_COMPONENT_LABELS:
-            details = summary.get(comp, {}).get("details", [])
-            items = []
-            row_label = FP_MATRIX[comp]["row_label"]
-            for d in details:
-                items.append({
-                    "name": d.get("Name", ""),
-                    "det": safe_int(d.get("DET", 1), 1),
-                    "ftr_ret": safe_int(d.get(row_label, 1), 1),
-                })
-            st.session_state[f"fp_items_{comp}"] = items or [{"name": "", "det": 1, "ftr_ret": 1}]
-
-    gsc = fp_data.get("gsc", {})
-    for idx, name in enumerate(GSC_NAMES):
-        st.session_state[f"fp_gsc_{idx}"] = safe_int(gsc.get(name, 0), 0)
-
-
-def apply_pending_import():
-    data = st.session_state.get("pending_import_package")
-    if not data:
-        return
-    load_package_to_form(data)
-    st.session_state.pending_import_package = None
-
 def process_pending_actions():
     if st.session_state.get("pending_fp_transfer"):
         kloc_value = max(float(st.session_state.get("fp_transfer_kloc", 1.0)), 0.001)
@@ -461,6 +408,7 @@ def process_pending_actions():
         st.session_state.kloc = kloc_value
         st.session_state.sloc = kloc_value * 1000.0
         st.session_state.pending_fp_transfer = False
+
     if st.session_state.get("pending_ai_apply"):
         suggestion = st.session_state.get("ai_suggestion")
         if suggestion:
@@ -613,7 +561,14 @@ def calc_fp_component_summary(component: str):
         weight = FP_WEIGHTS[component][complexity]
         counts[complexity] += 1
         total_ufp += weight
-        detailed_rows.append({"No": idx, "Name": item["name"] or f"{component}-{idx}", "DET": item["det"], row_label: item["ftr_ret"], "Complexity": complexity, "Weight": weight})
+        detailed_rows.append({
+            "No": idx,
+            "Name": item["name"] or f"{component}-{idx}",
+            "DET": item["det"],
+            row_label: item["ftr_ret"],
+            "Complexity": complexity,
+            "Weight": weight
+        })
     return {"count": len(items), "counts": counts, "ufp": total_ufp, "details": detailed_rows}
 
 
@@ -745,7 +700,7 @@ Mode gợi ý theo mô tả hiện tại là **{suggest_mode_rule_based(descript
 {chr(10).join([f'- {x}' for x in actions])}
 
 ### 6. Kết luận
-Kết quả hiện tại có thể dùng để báo cáo môn học và so sánh kịch bản. Tuy nhiên để estimate tốt hơn, nên dùng đồng thời cả **COCOMO** và **Function Point**, sau đó giải thích nguyên nhân nếu hai kết quả lệch nhau nhiều.
+Kết quả ước lượng có thể dùng làm cơ sở lập kế hoạch và so sánh các kịch bản phát triển.
 """.strip()
 
 
@@ -862,8 +817,6 @@ Viết bằng tiếng Việt theo 4 mục:
 """
         response = client.responses.create(model=AI_MODEL_NAME, input=prompt)
         text = response.output_text.strip()
-        text = re.sub(r"(?im)^.*nếu cần.*$", "", text).strip()
-        text = re.sub(r"(?im)^.*if needed.*$", "", text).strip()
         return (text or None), None if text else "AI unavailable"
     except Exception:
         return None, "AI unavailable"
@@ -1031,42 +984,6 @@ def build_current_package(result: dict, selections: dict, fp_snapshot: dict, val
     }
 
 
-def load_package_to_form(data: dict):
-    version, project = data.get("version", {}), data.get("project", {})
-    st.session_state.loaded_package = data
-    st.session_state.loaded_project_name = project.get("project_name", "")
-    st.session_state.project_name = project.get("project_name", "")
-    st.session_state.description = project.get("description", "")
-    inp = version.get("input", {})
-    st.session_state.mode = inp.get("mode", "Organic")
-    st.session_state.size_input_mode = inp.get("size_input_mode", "KLOC")
-    st.session_state.kloc = safe_float(inp.get("kloc", 1.0), 1.0)
-    st.session_state.sloc = safe_float(inp.get("sloc", st.session_state.kloc * 1000.0), st.session_state.kloc * 1000.0)
-    st.session_state.cost_per_pm = safe_float(inp.get("cost_per_pm", 12000000.0), 12000000.0)
-    drivers = version.get("cost_drivers", {})
-    for driver in COST_DRIVERS:
-        if driver in drivers and drivers[driver] in COST_DRIVERS[driver]["values"]:
-            st.session_state[driver] = drivers[driver]
-    st.session_state.ai_result = version.get("ai", {}).get("analysis", "")
-    st.session_state.ai_suggestion = version.get("ai", {}).get("suggestion", None)
-    fp_data = version.get("fp", {})
-    st.session_state.fp_language = fp_data.get("language", "Java")
-    st.session_state.fp_custom_loc_per_fp = safe_float(fp_data.get("loc_per_fp", 60.0), 60.0)
-    st.session_state.fp_mode = fp_data.get("fp_mode", "Organic")
-    st.session_state.fp_cost_per_pm = safe_float(fp_data.get("fp_cost_per_pm", 12000000.0), 12000000.0)
-    st.session_state.ai_fp_result = fp_data.get("ai_fp_result", "")
-    summary = fp_data.get("summary", {})
-    for comp in FP_COMPONENT_LABELS:
-        details = summary.get(comp, {}).get("details", [])
-        items, row_label = [], FP_MATRIX[comp]["row_label"]
-        for d in details:
-            items.append({"name": d.get("Name", ""), "det": safe_int(d.get("DET", 1), 1), "ftr_ret": safe_int(d.get(row_label, 1), 1)})
-        st.session_state[f"fp_items_{comp}"] = items or [{"name": "", "det": 1, "ftr_ret": 1}]
-    gsc = fp_data.get("gsc", {})
-    for idx, name in enumerate(GSC_NAMES):
-        st.session_state[f"fp_gsc_{idx}"] = safe_int(gsc.get(name, 0), 0)
-
-
 def import_project_package(uploaded_file):
     try:
         data = json.load(uploaded_file)
@@ -1078,6 +995,7 @@ def import_project_package(uploaded_file):
     st.session_state.pending_import_package = data
     st.session_state.pending_apply_import = True
     return True, f"Đã nhận file project: {data.get('project', {}).get('project_name', 'Imported Project')}"
+
 
 def fig_to_png_bytes(fig, width=1200, height=700, scale=2):
     if pio is None:
@@ -1097,9 +1015,11 @@ def make_pdf_report_bytes(project_meta: dict, result: dict, selections: dict, fp
     title_style = ParagraphStyle("TitleCustom", parent=styles["Title"], alignment=TA_CENTER, fontSize=18, leading=22)
     heading_style = ParagraphStyle("HeadingCustom", parent=styles["Heading2"], alignment=TA_LEFT, fontSize=12, textColor=colors.HexColor("#0d47a1"))
     normal_style = ParagraphStyle("NormalCustom", parent=styles["BodyText"], fontName="Helvetica", fontSize=9, leading=13)
+
     story = []
     story.append(Paragraph("Professional Software Estimation Report", title_style))
     story.append(Spacer(1, 10))
+
     summary_data = [
         ["Generated At", now_text()], ["Project Name", project_meta.get("project_name", "")], ["Mode", result["mode"]], ["KLOC", f"{result['kloc']:.2f}"],
         ["EAF", f"{result['eaf']:.3f}"], ["Effort", f"{result['effort']:.2f} PM"], ["Time", f"{result['tdev']:.2f} months"],
@@ -1110,26 +1030,31 @@ def make_pdf_report_bytes(project_meta: dict, result: dict, selections: dict, fp
     story.append(Paragraph("1. Executive Summary", heading_style))
     story.append(tbl)
     story.append(Spacer(1, 10))
+
     story.append(Paragraph("2. Project Description", heading_style))
     story.append(Paragraph((project_meta.get("description") or "-").replace("\n", "<br/>"), normal_style))
     story.append(Spacer(1, 8))
+
     if validation_messages:
         story.append(Paragraph("3. Inline Validation Warnings", heading_style))
         for msg in validation_messages:
             story.append(Paragraph(f"- {msg}", normal_style))
         story.append(Spacer(1, 8))
+
     story.append(Paragraph("4. Cost Drivers", heading_style))
     driver_rows = [["Driver", "Rating", "Multiplier"]] + [[d, r, str(COST_DRIVERS[d]["values"][r])] for d, r in selections.items()]
     driver_tbl = Table(driver_rows, colWidths=[70, 250, 90])
     driver_tbl.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#bbdefb"))]))
     story.append(driver_tbl)
     story.append(Spacer(1, 8))
+
     story.append(Paragraph("5. Function Point Summary", heading_style))
     fp_rows = [["Language", fp_snapshot["language"]], ["LOC per FP", f"{fp_snapshot['loc_per_fp']:.2f}"], ["UFP", f"{fp_snapshot['ufp']:.2f}"], ["DI", f"{fp_snapshot['di']}"], ["VAF", f"{fp_snapshot['vaf']:.2f}"], ["FP", f"{fp_snapshot['fp']:.2f}"], ["SLOC", f"{fp_snapshot['sloc']:,.0f}"], ["KLOC", f"{fp_snapshot['kloc']:.2f}"]]
     fp_tbl = Table(fp_rows, colWidths=[130, 180])
     fp_tbl.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e8f5e9"))]))
     story.append(fp_tbl)
     story.append(Spacer(1, 8))
+
     driver_df = build_driver_df(selections)
     fig1 = px.bar(driver_df, x="Driver", y="Multiplier", color="Group", title="Cost Driver Multipliers")
     cost_breakdown_df = pd.DataFrame([
@@ -1137,125 +1062,151 @@ def make_pdf_report_bytes(project_meta: dict, result: dict, selections: dict, fp
         {"Category": "Management", "Cost": result["cost"] * 0.15}, {"Category": "Tools & Infrastructure", "Cost": result["cost"] * 0.10},
     ])
     fig2 = px.pie(cost_breakdown_df, names="Category", values="Cost", title="Estimated Cost Breakdown")
+
     for fig in [fig1, fig2]:
         png = fig_to_png_bytes(fig)
         if png:
             story.append(Spacer(1, 6))
             story.append(Image(io.BytesIO(png), width=520, height=300))
+
     story.append(Spacer(1, 8))
     story.append(Paragraph("6. AI Analysis", heading_style))
     story.append(Paragraph("AI analysis is omitted in PDF due to Vietnamese font limitations. Please view the full Vietnamese analysis directly in the application.", normal_style))
+
     doc.build(story)
     pdf = buffer.getvalue()
     buffer.close()
     return pdf
 
 
-def build_help_markdown():
-    return """
-### Cách dùng nhanh
-
-**1. Estimator**
-- Nhập Project Name, Description, Mode, Size và Cost per Person-Month.
-- Chọn 15 cost drivers đúng theo slide Intermediate COCOMO.
-- Hệ thống tự tính Effort, Time, Team Size, Cost và Risk.
-
-**2. FP Estimator**
-- Không nhập Low/Average/High thủ công nữa.
-- Với từng loại **EI, EO, EQ, ILF, EIF**, nhập từng chức năng theo **DET** và **FTR/RET**.
-- Hệ thống tự xác định Complexity rồi cộng UFP.
-- Sau đó dùng 14 GSC để tính **VAF** và **FP**.
-
-**3. AI Optimization**
-- Tạo cấu hình tối ưu hơn từ cấu hình hiện tại.
-- Có bảng so sánh Current vs Suggested.
-- Bấm Apply để áp cấu hình AI lên form.
-
-**4. JSON Package**
-- Không lưu nội bộ nhiều project.
-- Muốn lưu, bấm **Export JSON Package** để tải file xuống.
-- Muốn làm tiếp, vào tab **Workspace** và upload lại file JSON.
-
-**5. PDF Report**
-- PDF dùng tiếng Anh để tránh lỗi font Unicode.
-- PDF có bảng tóm tắt, cost drivers, FP summary và chart.
-- Phân tích AI tiếng Việt xem trực tiếp trong app.
-"""
-
-
 init_state()
+
 if st.session_state.get("pending_apply_import") and st.session_state.get("pending_import_package"):
     set_form_from_package_data(st.session_state.pending_import_package)
-    st.session_state.loaded_package = st.session_state.pending_import_package
-    st.session_state.loaded_project_name = st.session_state.pending_import_package.get("project", {}).get("project_name", "")
     st.session_state.pending_import_package = None
     st.session_state.pending_apply_import = False
+
 process_pending_actions()
 
 with st.sidebar:
     st.title("Professional Estimation Workspace")
-    st.markdown("Estimate project effort, schedule, team size, cost, risk and export/import a full JSON package.")
-    preset = st.selectbox("Project Template", list(PRESET_PROJECTS.keys()), index=list(PRESET_PROJECTS.keys()).index(st.session_state.selected_preset) if st.session_state.selected_preset in PRESET_PROJECTS else 0)
-    st.markdown("#### Actions")
-    c1, c2 = st.columns(2, gap="small")
-    with c1:
-        if st.button("Apply Template", key="apply_template_btn"):
-            apply_preset(preset)
-            st.rerun()
-    with c2:
-        if st.button("Reset Form", key="reset_form_btn"):
-            reset_form()
-            st.rerun()
+    preset = st.selectbox(
+        "Project Template",
+        list(PRESET_PROJECTS.keys()),
+        index=list(PRESET_PROJECTS.keys()).index(st.session_state.selected_preset)
+        if st.session_state.selected_preset in PRESET_PROJECTS else 0
+    )
+
+    st.markdown("### Actions")
+    if st.button("Apply Template", use_container_width=True, type="primary"):
+        apply_preset(preset)
+        st.rerun()
+
+    st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+
+    if st.button("Reset Form", use_container_width=True):
+        reset_form()
+        st.rerun()
+
     enable_ai = st.checkbox("Enable AI", value=True)
+
     st.markdown("---")
     st.subheader("JSON Package")
+
     if st.session_state.project_name.strip():
         current_sel = get_driver_selections()
-        current_result = compute_result(st.session_state.project_name, st.session_state.description, st.session_state.mode, get_effective_kloc(), st.session_state.cost_per_pm, current_sel)
+        current_result = compute_result(
+            st.session_state.project_name,
+            st.session_state.description,
+            st.session_state.mode,
+            get_effective_kloc(),
+            st.session_state.cost_per_pm,
+            current_sel
+        )
         fp_snapshot_export = get_fp_snapshot()
-        validation_export = validate_inputs(st.session_state.project_name, st.session_state.description, st.session_state.mode, get_effective_kloc(), st.session_state.cost_per_pm, current_sel, fp_snapshot_export)
+        validation_export = validate_inputs(
+            st.session_state.project_name,
+            st.session_state.description,
+            st.session_state.mode,
+            get_effective_kloc(),
+            st.session_state.cost_per_pm,
+            current_sel,
+            fp_snapshot_export
+        )
         package = build_current_package(current_result, current_sel, fp_snapshot_export, validation_export)
-        st.download_button("Export JSON Package", data=json.dumps(package, ensure_ascii=False, indent=2).encode("utf-8"), file_name=f"{(st.session_state.project_name or 'project').replace(' ', '_').lower()}_package.json", mime="application/json", use_container_width=True)
+        st.download_button(
+            "Export JSON Package",
+            data=json.dumps(package, ensure_ascii=False, indent=2).encode("utf-8"),
+            file_name=f"{(st.session_state.project_name or 'project').replace(' ', '_').lower()}_package.json",
+            mime="application/json",
+            use_container_width=True
+        )
     else:
-        st.info("Nhập Project Name để bật export JSON.")
+        st.info("Enter Project Name to enable project export.")
+
     if st.session_state.loaded_project_name:
         st.success(f"Đang làm tiếp từ file JSON: {st.session_state.loaded_project_name}")
 
 st.title("Professional Software Effort Estimation Workspace")
-st.caption("Intermediate COCOMO + Function Point + AI Analysis + JSON Package + PDF Report")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Estimator", "FP Estimator", "AI Optimization", "Workspace", "Help"])
+tab1, tab2, tab3, tab4 = st.tabs(["Estimator", "FP Estimator", "AI Optimization", "Workspace"])
 
 with tab1:
     left, right = st.columns([1.05, 1])
+
     with left:
         st.subheader("Project Information")
         st.text_input("Project Name", key="project_name")
         if not st.session_state.project_name.strip():
             st.warning("Please enter Project Name.")
+
         st.text_area("Project Description", height=150, key="description")
         st.selectbox("Development Mode", list(MODES.keys()), key="mode")
         st.selectbox("Size Input Unit", ["KLOC", "SLOC"], key="size_input_mode")
+
         if st.session_state.size_input_mode == "KLOC":
             st.number_input("Estimated Size (KLOC)", min_value=0.001, step=1.0, key="kloc")
         else:
             st.number_input("Estimated Size (SLOC)", min_value=1.0, step=100.0, key="sloc")
+
         st.number_input("Cost per Person-Month (VND)", min_value=1000000.0, step=1000000.0, key="cost_per_pm")
+
         if st.session_state.description.strip():
             st.info(f"Suggested mode from description: **{suggest_mode_rule_based(st.session_state.description)}**")
+
     with right:
         st.subheader("Cost Drivers")
         for group_name, drivers in COST_DRIVER_GROUPS.items():
             with st.expander(group_name, expanded=True):
                 for driver in drivers:
                     meta = COST_DRIVERS[driver]
-                    st.selectbox(f"{driver} - {meta['label']}", list(meta["values"].keys()), key=driver, help=meta["help"])
+                    st.selectbox(
+                        f"{driver} - {meta['label']}",
+                        list(meta["values"].keys()),
+                        key=driver,
+                        help=meta["help"]
+                    )
 
     selections = get_driver_selections()
     effective_kloc = get_effective_kloc()
-    result = compute_result(st.session_state.project_name, st.session_state.description, st.session_state.mode, effective_kloc, st.session_state.cost_per_pm, selections)
+    result = compute_result(
+        st.session_state.project_name,
+        st.session_state.description,
+        st.session_state.mode,
+        effective_kloc,
+        st.session_state.cost_per_pm,
+        selections
+    )
     fp_snapshot = get_fp_snapshot()
-    validation_messages = validate_inputs(st.session_state.project_name, st.session_state.description, st.session_state.mode, effective_kloc, st.session_state.cost_per_pm, selections, fp_snapshot)
+    validation_messages = validate_inputs(
+        st.session_state.project_name,
+        st.session_state.description,
+        st.session_state.mode,
+        effective_kloc,
+        st.session_state.cost_per_pm,
+        selections,
+        fp_snapshot
+    )
     render_inline_warnings(validation_messages)
 
     st.subheader("Estimation Results")
@@ -1265,11 +1216,13 @@ with tab1:
     m3.metric("Team Size", f"{result['staff']:.2f}")
     m4.metric("Cost", format_currency_short(result["cost"]))
     m5.metric("Risk Level", result["risk_level"])
+
     st.caption(f"Effective KLOC used for calculation: {effective_kloc:.3f}")
     st.caption(f"Full estimated cost: {result['cost']:,.0f} VND")
 
     driver_df = build_driver_df(selections)
     top5_df = get_top_impact_drivers(driver_df)
+
     c1, c2 = st.columns([1.2, 1])
     with c1:
         fig1 = px.bar(driver_df, x="Driver", y="Multiplier", color="Group", hover_data=["Name", "Rating"], title="Cost Driver Multipliers")
@@ -1283,33 +1236,88 @@ with tab1:
         compare_rows = []
         for each_mode in MODES:
             mode_result = compute_result(result["project_name"], result["description"], each_mode, effective_kloc, result["cost_per_pm"], selections)
-            compare_rows.append({"Mode": each_mode, "Effort": mode_result["effort"], "Development Time": mode_result["tdev"], "Average Staff": mode_result["staff"]})
+            compare_rows.append({
+                "Mode": each_mode,
+                "Effort": mode_result["effort"],
+                "Development Time": mode_result["tdev"],
+                "Average Staff": mode_result["staff"]
+            })
         fig2 = px.bar(pd.DataFrame(compare_rows), x="Mode", y="Effort", color="Mode", title="Effort Comparison by Mode")
         st.plotly_chart(fig2, use_container_width=True)
+
     with c4:
         cost_breakdown_df = pd.DataFrame([
-            {"Category": "Development", "Cost": result["cost"] * 0.55}, {"Category": "Testing & QA", "Cost": result["cost"] * 0.20},
-            {"Category": "Management", "Cost": result["cost"] * 0.15}, {"Category": "Tools & Infrastructure", "Cost": result["cost"] * 0.10},
+            {"Category": "Development", "Cost": result["cost"] * 0.55},
+            {"Category": "Testing & QA", "Cost": result["cost"] * 0.20},
+            {"Category": "Management", "Cost": result["cost"] * 0.15},
+            {"Category": "Tools & Infrastructure", "Cost": result["cost"] * 0.10},
         ])
         fig3 = px.pie(cost_breakdown_df, names="Category", values="Cost", title="Estimated Cost Breakdown")
         st.plotly_chart(fig3, use_container_width=True)
 
     st.subheader("Driver Table")
     st.dataframe(driver_df[["Driver", "Name", "Group", "Rating", "Multiplier"]], use_container_width=True)
-    pdf_bytes = make_pdf_report_bytes({"project_name": st.session_state.project_name, "description": st.session_state.description}, result, selections, fp_snapshot, validation_messages)
+
+    pdf_bytes = make_pdf_report_bytes(
+        {"project_name": st.session_state.project_name, "description": st.session_state.description},
+        result,
+        selections,
+        fp_snapshot,
+        validation_messages
+    )
 
     a1, a2 = st.columns(2)
     with a1:
         if st.button("Generate AI Analysis", use_container_width=True):
             if enable_ai:
-                ai_text, _ = call_ai_analysis(st.session_state.description, st.session_state.mode, effective_kloc, result["eaf"], result["effort"], result["tdev"], result["staff"], result["cost"], selections, fp_snapshot)
-                st.session_state.ai_result = ai_text or fallback_ai_summary(st.session_state.description, st.session_state.mode, effective_kloc, result["eaf"], result["effort"], result["tdev"], result["staff"], result["cost"], selections, fp_snapshot)
+                ai_text, _ = call_ai_analysis(
+                    st.session_state.description,
+                    st.session_state.mode,
+                    effective_kloc,
+                    result["eaf"],
+                    result["effort"],
+                    result["tdev"],
+                    result["staff"],
+                    result["cost"],
+                    selections,
+                    fp_snapshot
+                )
+                st.session_state.ai_result = ai_text or fallback_ai_summary(
+                    st.session_state.description,
+                    st.session_state.mode,
+                    effective_kloc,
+                    result["eaf"],
+                    result["effort"],
+                    result["tdev"],
+                    result["staff"],
+                    result["cost"],
+                    selections,
+                    fp_snapshot
+                )
             else:
-                st.session_state.ai_result = fallback_ai_summary(st.session_state.description, st.session_state.mode, effective_kloc, result["eaf"], result["effort"], result["tdev"], result["staff"], result["cost"], selections, fp_snapshot)
+                st.session_state.ai_result = fallback_ai_summary(
+                    st.session_state.description,
+                    st.session_state.mode,
+                    effective_kloc,
+                    result["eaf"],
+                    result["effort"],
+                    result["tdev"],
+                    result["staff"],
+                    result["cost"],
+                    selections,
+                    fp_snapshot
+                )
             st.rerun()
+
     with a2:
         if pdf_bytes:
-            st.download_button("Download PDF Report", data=pdf_bytes, file_name=f"{(result['project_name'] or 'project').replace(' ', '_').lower()}_report.pdf", mime="application/pdf", use_container_width=True)
+            st.download_button(
+                "Download PDF Report",
+                data=pdf_bytes,
+                file_name=f"{(result['project_name'] or 'project').replace(' ', '_').lower()}_report.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
         else:
             st.info("Add reportlab and kaleido to requirements.txt for PDF export.")
 
@@ -1317,11 +1325,11 @@ with tab1:
     if st.session_state.ai_result:
         st.markdown(st.session_state.ai_result)
     else:
-        st.caption("Chưa có AI analysis. Bấm Generate AI Analysis để tạo.")
+        st.caption("Bấm Generate AI Analysis để tiến hành phân tích.")
 
 with tab2:
     st.subheader("Function Point Estimator")
-    st.caption("Nhập từng EI, EO, EQ, ILF, EIF theo DET và FTR/RET. Hệ thống tự xác định complexity và tính UFP/VAF/FP.")
+
     st.selectbox("Programming Language", list(LANGUAGE_LOC_PER_FP.keys()) + ["Custom"], key="fp_language")
     if st.session_state.fp_language == "Custom":
         st.number_input("Custom LOC per FP", min_value=1.0, step=1.0, key="fp_custom_loc_per_fp")
@@ -1329,17 +1337,30 @@ with tab2:
     for comp, label in FP_COMPONENT_LABELS.items():
         with st.expander(f"{comp} - {label}", expanded=False):
             items = get_fp_items(comp)
-            edited = st.data_editor(pd.DataFrame(items), num_rows="dynamic", use_container_width=True, key=f"editor_{comp}", column_config={
-                "name": st.column_config.TextColumn("Function Name"),
-                "det": st.column_config.NumberColumn("DET", min_value=1, step=1),
-                "ftr_ret": st.column_config.NumberColumn(FP_MATRIX[comp]["row_label"], min_value=1, step=1),
-            })
+            edited = st.data_editor(
+                pd.DataFrame(items),
+                num_rows="dynamic",
+                use_container_width=True,
+                key=f"editor_{comp}",
+                column_config={
+                    "name": st.column_config.TextColumn("Function Name"),
+                    "det": st.column_config.NumberColumn("DET", min_value=1, step=1),
+                    "ftr_ret": st.column_config.NumberColumn(FP_MATRIX[comp]["row_label"], min_value=1, step=1),
+                }
+            )
             st.session_state[f"fp_items_{comp}"] = edited.to_dict("records")
+
             preview_rows = []
             for row in st.session_state[f"fp_items_{comp}"]:
                 det, fr = safe_int(row.get("det", 1), 1), safe_int(row.get("ftr_ret", 1), 1)
                 cx = classify_fp_item(comp, det, fr)
-                preview_rows.append({"Function Name": row.get("name", ""), "DET": det, FP_MATRIX[comp]["row_label"]: fr, "Complexity": cx, "Weight": FP_WEIGHTS[comp][cx]})
+                preview_rows.append({
+                    "Function Name": row.get("name", ""),
+                    "DET": det,
+                    FP_MATRIX[comp]["row_label"]: fr,
+                    "Complexity": cx,
+                    "Weight": FP_WEIGHTS[comp][cx]
+                })
             if preview_rows:
                 st.dataframe(pd.DataFrame(preview_rows), use_container_width=True)
 
@@ -1350,7 +1371,14 @@ with tab2:
             st.slider(name, min_value=0, max_value=5, key=f"fp_gsc_{idx}")
 
     fp_snapshot = get_fp_snapshot()
-    fp_based_result = compute_result(f"{st.session_state.project_name or 'FP Project'} (FP-based)", st.session_state.description or "Function Point derived estimation", st.session_state.fp_mode, max(fp_snapshot["kloc"], 0.001), st.session_state.fp_cost_per_pm, get_driver_selections())
+    fp_based_result = compute_result(
+        f"{st.session_state.project_name or 'FP Project'} (FP-based)",
+        st.session_state.description or "Function Point derived estimation",
+        st.session_state.fp_mode,
+        max(fp_snapshot["kloc"], 0.001),
+        st.session_state.fp_cost_per_pm,
+        get_driver_selections()
+    )
 
     st.markdown("### FP Results")
     m1, m2, m3, m4, m5 = st.columns(5)
@@ -1359,9 +1387,18 @@ with tab2:
     m3.metric("VAF", f"{fp_snapshot['vaf']:.2f}")
     m4.metric("FP", f"{fp_snapshot['fp']:.2f}")
     m5.metric("KLOC", f"{fp_snapshot['kloc']:.2f}")
+
     st.caption(f"Estimated SLOC from FP: {fp_snapshot['sloc']:,.0f}")
     st.caption(f"LOC per FP factor used: {fp_snapshot['loc_per_fp']:.2f}")
-    summary_rows = [{"Component": comp, "Count": s["count"], "Low": s["counts"]["Low"], "Average": s["counts"]["Average"], "High": s["counts"]["High"], "UFP": s["ufp"]} for comp, s in fp_snapshot["summary"].items()]
+
+    summary_rows = [{
+        "Component": comp,
+        "Count": s["count"],
+        "Low": s["counts"]["Low"],
+        "Average": s["counts"]["Average"],
+        "High": s["counts"]["High"],
+        "UFP": s["ufp"]
+    } for comp, s in fp_snapshot["summary"].items()]
     st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
 
     mc1, mc2 = st.columns(2)
@@ -1387,6 +1424,7 @@ with tab2:
             else:
                 st.session_state.ai_fp_result = fallback_fp_ai_summary(fp_snapshot, fp_based_result)
             st.rerun()
+
     with ac2:
         if st.button("Send FP Size to COCOMO", use_container_width=True):
             st.session_state.fp_transfer_kloc = max(fp_snapshot["kloc"], 0.001)
@@ -1397,12 +1435,20 @@ with tab2:
     if st.session_state.ai_fp_result:
         st.markdown(st.session_state.ai_fp_result)
     else:
-        st.caption("Chưa có FP AI analysis. Bấm Generate FP AI Analysis để tạo.")
+        st.caption("Bấm Generate FP AI Analysis để tiến hành phân tích.")
 
 with tab3:
     st.subheader("AI Optimization")
     current_selections = get_driver_selections()
-    current_result = compute_result(st.session_state.project_name, st.session_state.description, st.session_state.mode, get_effective_kloc(), st.session_state.cost_per_pm, current_selections)
+    current_result = compute_result(
+        st.session_state.project_name,
+        st.session_state.description,
+        st.session_state.mode,
+        get_effective_kloc(),
+        st.session_state.cost_per_pm,
+        current_selections
+    )
+
     c1, c2 = st.columns([1, 1], gap="small")
     with c1:
         st.markdown("### Current Baseline")
@@ -1412,13 +1458,20 @@ with tab3:
         st.write(f"**Effort:** {current_result['effort']:.2f} PM")
         st.write(f"**Cost:** {current_result['cost']:,.0f} VND")
         st.write(f"**Risk:** {current_result['risk_level']}")
+
     with c2:
         if st.button("Generate AI Optimization", use_container_width=True):
-            suggestion, error_msg = call_ai_optimization(current_result["project_name"], current_result["description"], current_result, current_selections)
+            suggestion, error_msg = call_ai_optimization(
+                current_result["project_name"],
+                current_result["description"],
+                current_result,
+                current_selections
+            )
             st.session_state.ai_suggestion = suggestion
             if error_msg:
                 st.warning("AI optimization tạm thời không khả dụng. Hệ thống đang dùng fallback suggestion.")
             st.rerun()
+
     suggestion = st.session_state.get("ai_suggestion")
     if suggestion:
         suggested_selections, suggested_result = apply_suggestion_to_result(current_result, current_selections, suggestion)
@@ -1432,18 +1485,25 @@ with tab3:
             st.write("**Reasoning:**")
             for item in suggestion["reasoning"]:
                 st.write(f"- {item}")
+
         driver_change_df = build_driver_change_df(current_selections, suggested_selections)
         if not driver_change_df.empty:
             st.dataframe(driver_change_df, use_container_width=True)
+
         st.markdown("### Current vs Suggested")
         st.dataframe(build_metric_compare_df(current_result, suggested_result), use_container_width=True)
+
         compare_chart_df = pd.DataFrame([
-            {"Scenario": "Current", "Metric": "Effort", "Value": current_result["effort"]}, {"Scenario": "Suggested", "Metric": "Effort", "Value": suggested_result["effort"]},
-            {"Scenario": "Current", "Metric": "Time", "Value": current_result["tdev"]}, {"Scenario": "Suggested", "Metric": "Time", "Value": suggested_result["tdev"]},
-            {"Scenario": "Current", "Metric": "Cost", "Value": current_result["cost"]}, {"Scenario": "Suggested", "Metric": "Cost", "Value": suggested_result["cost"]},
+            {"Scenario": "Current", "Metric": "Effort", "Value": current_result["effort"]},
+            {"Scenario": "Suggested", "Metric": "Effort", "Value": suggested_result["effort"]},
+            {"Scenario": "Current", "Metric": "Time", "Value": current_result["tdev"]},
+            {"Scenario": "Suggested", "Metric": "Time", "Value": suggested_result["tdev"]},
+            {"Scenario": "Current", "Metric": "Cost", "Value": current_result["cost"]},
+            {"Scenario": "Suggested", "Metric": "Cost", "Value": suggested_result["cost"]},
         ])
         fig_ai = px.bar(compare_chart_df, x="Metric", y="Value", color="Scenario", barmode="group", title="Current vs Suggested")
         st.plotly_chart(fig_ai, use_container_width=True)
+
         if st.button("Apply AI Suggestion", use_container_width=True):
             st.session_state.pending_ai_apply = True
             st.rerun()
@@ -1452,8 +1512,9 @@ with tab3:
 
 with tab4:
     st.subheader("Workspace")
-    st.caption("Không lưu nội bộ nhiều project. Chỉ import lại JSON package để tiếp tục làm việc.")
+    st.caption("Import lại JSON package để tiếp tục làm việc.")
     uploaded_json = st.file_uploader("Upload JSON Package", type=["json"])
+
     if uploaded_json is not None:
         if st.button("Load JSON Package", use_container_width=True):
             ok, msg = import_project_package(uploaded_json)
@@ -1462,9 +1523,6 @@ with tab4:
                 st.rerun()
             else:
                 st.error(msg)
+
     if st.session_state.loaded_project_name:
         st.success(f"Current loaded package: {st.session_state.loaded_project_name}")
-
-with tab5:
-    st.subheader("Help")
-    st.markdown(build_help_markdown())
