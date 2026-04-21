@@ -1117,15 +1117,17 @@ with st.sidebar:
     st.title("Professional Estimation Workspace")
     st.markdown("Estimate project effort, schedule, team size, cost, risk and export/import a full JSON package.")
     preset = st.selectbox("Project Template", list(PRESET_PROJECTS.keys()), index=list(PRESET_PROJECTS.keys()).index(st.session_state.selected_preset) if st.session_state.selected_preset in PRESET_PROJECTS else 0)
-    c1, c2 = st.columns([1, 1], gap="small")
-    with c1:
-        if st.button("Apply Template", use_container_width=True, type="primary"):
-            apply_preset(preset)
-            st.rerun()
-    with c2:
-        if st.button("Reset Form", use_container_width=True):
-            reset_form()
-            st.rerun()
+    st.markdown("### Actions")
+
+    if st.button("Apply Template", use_container_width=True, type="primary"):
+        apply_preset(preset)
+        st.rerun()
+
+    st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+
+    if st.button("Reset Form", use_container_width=True):
+        reset_form()
+    st.rerun()
     enable_ai = st.checkbox("Enable AI", value=True)
     st.markdown("---")
     st.subheader("JSON Package")
@@ -1143,7 +1145,7 @@ with st.sidebar:
 
 st.title("Professional Software Effort Estimation Workspace")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Estimator", "FP Estimator", "AI Optimization", "Workspace"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Estimator", "FP Estimator", "AI Optimization", "Workspace", "Help"])
 
 with tab1:
     left, right = st.columns([1.05, 1])
