@@ -1143,7 +1143,7 @@ with st.sidebar:
 
 st.title("Professional Software Effort Estimation Workspace")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Estimator", "FP Estimator", "AI Optimization", "Workspace", "Help"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Estimator", "FP Estimator", "AI Optimization", "Workspace"])
 
 with tab1:
     left, right = st.columns([1.05, 1])
@@ -1236,7 +1236,7 @@ with tab1:
     if st.session_state.ai_result:
         st.markdown(st.session_state.ai_result)
     else:
-        st.caption("Chưa có AI analysis. Bấm Generate AI Analysis để tạo.")
+        st.caption("Bấm Generate AI Analysis để tiến hành phân tích.")
 
 with tab2:
     st.subheader("Function Point Estimator")
@@ -1315,7 +1315,7 @@ with tab2:
     if st.session_state.ai_fp_result:
         st.markdown(st.session_state.ai_fp_result)
     else:
-        st.caption("Chưa có FP AI analysis. Bấm Generate FP AI Analysis để tạo.")
+        st.caption("Bấm Generate FP AI Analysis để tiến hành phân tích.")
 
 with tab3:
     st.subheader("AI Optimization")
