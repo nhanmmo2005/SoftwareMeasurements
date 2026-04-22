@@ -258,6 +258,102 @@ LANGUAGE_LOC_PER_FP = {
     "Delphi": 18, "HTML": 14, "SQL": 13, "Excel": 47,
 }
 
+FP_PRESET_TEMPLATES = {
+    "Start FP from Scratch": None,
+    "School Management FP Demo": {
+        "language": "Java",
+        "fp_mode": "Organic",
+        "gsc": [2, 1, 3, 2, 3, 4, 3, 4, 3, 2, 2, 3, 2, 3],
+        "items": {
+            "EI": [
+                {"name": "Add Student", "det": 12, "ftr_ret": 2},
+                {"name": "Update Student", "det": 10, "ftr_ret": 2},
+                {"name": "Record Attendance", "det": 8, "ftr_ret": 2},
+                {"name": "Enter Scores", "det": 9, "ftr_ret": 2},
+            ],
+            "EO": [
+                {"name": "Student Report Card", "det": 18, "ftr_ret": 3},
+                {"name": "Attendance Summary", "det": 14, "ftr_ret": 2},
+            ],
+            "EQ": [
+                {"name": "Search Student", "det": 8, "ftr_ret": 2},
+                {"name": "View Class Schedule", "det": 7, "ftr_ret": 2},
+            ],
+            "ILF": [
+                {"name": "Student File", "det": 35, "ftr_ret": 3},
+                {"name": "Attendance File", "det": 24, "ftr_ret": 2},
+                {"name": "Score File", "det": 28, "ftr_ret": 3},
+            ],
+            "EIF": [
+                {"name": "Payment Gateway Reference", "det": 18, "ftr_ret": 1},
+            ],
+        },
+    },
+    "Hotel Management FP Demo": {
+        "language": "Java",
+        "fp_mode": "Semi-detached",
+        "gsc": [3, 2, 3, 2, 3, 4, 3, 4, 4, 2, 2, 3, 2, 3],
+        "items": {
+            "EI": [
+                {"name": "Create Booking", "det": 12, "ftr_ret": 2},
+                {"name": "Check In Guest", "det": 9, "ftr_ret": 2},
+                {"name": "Check Out Guest", "det": 10, "ftr_ret": 3},
+                {"name": "Record Service Usage", "det": 8, "ftr_ret": 2},
+            ],
+            "EO": [
+                {"name": "Invoice", "det": 18, "ftr_ret": 3},
+                {"name": "Occupancy Report", "det": 15, "ftr_ret": 2},
+                {"name": "Revenue Report", "det": 17, "ftr_ret": 3},
+            ],
+            "EQ": [
+                {"name": "Room Availability Search", "det": 7, "ftr_ret": 2},
+                {"name": "Guest Search", "det": 8, "ftr_ret": 2},
+            ],
+            "ILF": [
+                {"name": "Booking File", "det": 30, "ftr_ret": 3},
+                {"name": "Room File", "det": 22, "ftr_ret": 2},
+                {"name": "Billing File", "det": 26, "ftr_ret": 3},
+            ],
+            "EIF": [
+                {"name": "External Payment Provider", "det": 16, "ftr_ret": 1},
+                {"name": "Travel Agency Feed", "det": 14, "ftr_ret": 1},
+            ],
+        },
+    },
+    "E-commerce FP Demo": {
+        "language": "Java",
+        "fp_mode": "Semi-detached",
+        "gsc": [4, 3, 4, 3, 4, 5, 4, 4, 4, 3, 3, 3, 3, 4],
+        "items": {
+            "EI": [
+                {"name": "Create Order", "det": 14, "ftr_ret": 3},
+                {"name": "Update Cart", "det": 8, "ftr_ret": 2},
+                {"name": "Process Payment", "det": 11, "ftr_ret": 3},
+                {"name": "Manage Product", "det": 10, "ftr_ret": 2},
+            ],
+            "EO": [
+                {"name": "Order Confirmation", "det": 16, "ftr_ret": 3},
+                {"name": "Sales Dashboard", "det": 20, "ftr_ret": 4},
+                {"name": "Inventory Status Report", "det": 17, "ftr_ret": 3},
+            ],
+            "EQ": [
+                {"name": "Product Search", "det": 9, "ftr_ret": 2},
+                {"name": "Track Order", "det": 7, "ftr_ret": 2},
+            ],
+            "ILF": [
+                {"name": "Product File", "det": 40, "ftr_ret": 4},
+                {"name": "Order File", "det": 34, "ftr_ret": 3},
+                {"name": "Customer File", "det": 24, "ftr_ret": 2},
+                {"name": "Inventory File", "det": 25, "ftr_ret": 2},
+            ],
+            "EIF": [
+                {"name": "Payment Gateway", "det": 18, "ftr_ret": 1},
+                {"name": "Shipping Carrier API", "det": 15, "ftr_ret": 1},
+            ],
+        },
+    },
+}
+
 
 def now_text():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -377,6 +473,7 @@ def init_state():
         "loaded_project_name": "",
         "pending_import_package": None,
         "pending_apply_import": False,
+        "selected_fp_preset": "Start FP from Scratch",
         "link_fp_with_estimator": False,
     }
     for k, v in defaults.items():
@@ -412,6 +509,7 @@ def reset_form():
     st.session_state.fp_custom_loc_per_fp = 60.0
     st.session_state.fp_mode = "Organic"
     st.session_state.fp_cost_per_pm = 12000000.0
+    st.session_state.selected_fp_preset = "Start FP from Scratch"
     st.session_state.link_fp_with_estimator = False
     for driver, meta in COST_DRIVERS.items():
         vals = list(meta["values"].keys())
@@ -420,6 +518,33 @@ def reset_form():
         st.session_state[f"fp_items_{comp}"] = []
     for idx in range(14):
         st.session_state[f"fp_gsc_{idx}"] = 0
+
+
+def reset_fp_form():
+    st.session_state.fp_language = "Java"
+    st.session_state.fp_custom_loc_per_fp = 60.0
+    st.session_state.fp_mode = "Organic"
+    st.session_state.fp_cost_per_pm = 12000000.0
+    st.session_state.ai_fp_result = ""
+    for comp in FP_COMPONENT_LABELS:
+        st.session_state[f"fp_items_{comp}"] = [{"name": "", "det": 1, "ftr_ret": 1}]
+    for idx in range(14):
+        st.session_state[f"fp_gsc_{idx}"] = 0
+
+
+def apply_fp_preset(name: str):
+    preset = FP_PRESET_TEMPLATES.get(name)
+    if not preset:
+        reset_fp_form()
+        return
+    st.session_state.fp_language = preset.get("language", "Java")
+    st.session_state.fp_mode = preset.get("fp_mode", "Organic")
+    for comp in FP_COMPONENT_LABELS:
+        items = preset.get("items", {}).get(comp, [])
+        st.session_state[f"fp_items_{comp}"] = items or [{"name": "", "det": 1, "ftr_ret": 1}]
+    gsc_values = preset.get("gsc", [0] * 14)
+    for idx in range(14):
+        st.session_state[f"fp_gsc_{idx}"] = int(gsc_values[idx]) if idx < len(gsc_values) else 0
 
 
 def apply_preset(name: str):
@@ -1675,6 +1800,15 @@ with tab1:
 with tab2:
     st.subheader("Function Point Estimator")
 
+    fp_preset_col1, fp_preset_col2 = st.columns([4, 1])
+    with fp_preset_col1:
+        st.selectbox("FP Template", list(FP_PRESET_TEMPLATES.keys()), key="selected_fp_preset")
+    with fp_preset_col2:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("Apply FP Template", use_container_width=True):
+            apply_fp_preset(st.session_state.selected_fp_preset)
+            st.rerun()
+
     st.selectbox("Programming Language", list(LANGUAGE_LOC_PER_FP.keys()) + ["Custom"], key="fp_language")
     if st.session_state.fp_language == "Custom":
         st.number_input("Custom LOC per FP", min_value=1.0, step=1.0, key="fp_custom_loc_per_fp")
@@ -1717,10 +1851,14 @@ with tab2:
                 st.dataframe(pd.DataFrame(preview_rows), use_container_width=True)
 
     st.markdown("### General System Characteristics (0-5)")
-    cols = st.columns(2)
+    st.caption("Select one score from 0 to 5 for each characteristic.")
     for idx, name in enumerate(GSC_NAMES):
-        with cols[idx % 2]:
-            st.slider(name, min_value=0, max_value=5, key=f"fp_gsc_{idx}")
+        st.radio(
+            name,
+            options=[0, 1, 2, 3, 4, 5],
+            horizontal=True,
+            key=f"fp_gsc_{idx}"
+        )
 
     fp_snapshot = get_fp_snapshot()
     fp_based_result = compute_result(
